@@ -3,11 +3,12 @@ export const JOINTS = ['hips', 'spine', 'chest', 'neck', 'head', 'leftShoulder',
 export type Joint = typeof JOINTS[number];
 export type Pose = Record<Joint, Vec3>;
 export type Body = 'male' | 'female';
+export const DEFAULT_HAIR_COLOR = '#3b2720';
 export const PROP_KINDS = ['lamp', 'table', 'chair', 'desk', 'couch', 'bed', 'room'] as const;
 export type PropKind = typeof PROP_KINDS[number];
 export interface Item {
   id: string; name: string; kind: Body | PropKind | 'light'; color: string;
-  position: Vec3; rotation: Vec3; scale: Vec3; pose?: Pose; intensity?: number; target?: Vec3;
+  position: Vec3; rotation: Vec3; scale: Vec3; pose?: Pose; hairColor?: string; intensity?: number; target?: Vec3;
 }
 export interface CameraState {
   position: Vec3; target: Vec3; focalLength: number; near: number; far: number;
@@ -53,7 +54,7 @@ export function createItem(kind: Item['kind'], index = 0): Item {
     id: crypto.randomUUID(), name: `${kind[0].toUpperCase()}${kind.slice(1)} ${index + 1}`, kind,
     color: body ? (kind === 'male' ? '#b9c9d1' : '#d3b8a5') : kind === 'light' ? '#fff1db' : '#a59987',
     position: [index * 0.6, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1],
-    ...(body ? { pose: neutralPose() } : {}),
+    ...(body ? { pose: neutralPose(), hairColor: DEFAULT_HAIR_COLOR } : {}),
     ...(kind === 'light' ? { position: [3, 5, 3] as Vec3, target: [0, 1, 0] as Vec3, intensity: 30 } : {}),
   };
 }
@@ -99,7 +100,10 @@ export function validatePortable(value: unknown): Portable {
     ids.add(id);
     const kind = enumValue(i.kind, ['male', 'female', ...PROP_KINDS, 'light']);
     const item: Item = { id, kind, name: text(i.name), color: color(i.color), position: vec(i.position), rotation: vec(i.rotation, -Math.PI * 2, Math.PI * 2), scale: vec(i.scale, 0.05, 10) };
-    if (isBody(kind)) item.pose = validatePose(i.pose);
+    if (isBody(kind)) {
+      item.pose = validatePose(i.pose);
+      item.hairColor = i.hairColor === undefined ? DEFAULT_HAIR_COLOR : color(i.hairColor);
+    }
     if (kind === 'light') { item.intensity = num(i.intensity, 0, 200); item.target = vec(i.target); }
     return item;
   });

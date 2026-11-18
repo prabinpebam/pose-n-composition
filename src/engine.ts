@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { getJointRotation, setFigurePose, type Figure } from './rig';
 import { makeExternalFigure } from './external-rig';
 import { makeProp } from './props';
-import { clone, isBody, JOINTS, validatePortable, type Item, type Joint, type SceneState, type Vec3 } from './model';
+import { clone, DEFAULT_HAIR_COLOR, isBody, JOINTS, validatePortable, type Item, type Joint, type SceneState, type Vec3 } from './model';
 
 interface Entry { kind: Item['kind']; root: T.Group; figure?: Figure; light?: T.SpotLight; target?: T.Object3D; markers?: T.Mesh[] }
 export interface EngineOptions {
@@ -127,6 +127,7 @@ export class Studio {
       if (entry.figure && item.pose) {
         setFigurePose(entry.figure, item.pose);
         entry.figure.tintMaterials.forEach(material => material.color.set(item.color));
+        entry.figure.hairMaterials.forEach(material => material.color.set(item.hairColor ?? DEFAULT_HAIR_COLOR));
       }
       else if (!entry.light) entry.root.traverse(node => {
         if (node instanceof T.Mesh && node.material instanceof T.MeshStandardMaterial && !node.userData.fixedColor) node.material.color.set(item.color);

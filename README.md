@@ -46,6 +46,12 @@ aspect and focus → **Camera view** → **Export PNG** / save scene.
 The floor is a fixed neutral stage; background color changes the space above it.
 Lamp is a furnishing; add a separate Studio light for illumination.
 
+**Appearance:** Select a figure and use **Hair color** to recolor its scalp hair,
+eyebrows and eyelashes together, independently of **Surface color**. Both figures
+have a basic short hairstyle fitted to their actual skull and attached to the
+head bone. Head/neck posing and root transforms carry it with the face. Hair color
+is scene appearance, so applying or resetting a pose does not change it.
+
 ### Controls
 
 | Action | Control |
@@ -78,6 +84,10 @@ below the viewport; desktop is the primary workflow.
 - Files use `schemaVersion: 1`, `rigVersion: 1`, `type: "scene" | "pose"`.
   Imports require bounded finite values, every known joint, unique object IDs,
   valid colors and clipping planes. Limits: **1 MB, 64 objects, 8 studio lights**.
+- Figure scene items include `hairColor: "#rrggbb"`. This additive v1 field is
+  optional in older files/saves: absent values load as dark brown (`#3b2720`);
+  malformed present values reject the whole import. Existing records are not
+  rewritten or cleared. Pose files deliberately exclude all appearance.
 - IndexedDB transaction completion is required before reporting success.
   Quota, blocked database, import and preference errors are visible.
 - Storage keys are app-prefixed because GitHub Pages repositories on the same
@@ -161,7 +171,7 @@ runtime network requests except its own static assets.
 
 ## License and privacy
 
-Original code and procedural furnishings are MIT licensed. Quaternius figure
+Original code, generated scalp hair and procedural furnishings are MIT licensed. Quaternius figure
 assets retain their included CC0 license and are credited in [ASSETS.md](docs/ASSETS.md).
 No code, models, textures, branding or interface from PoseMy.Art was copied; its
 public capabilities were used only as functional reference. Dependency notices are in

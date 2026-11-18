@@ -38,7 +38,7 @@ function vertexWorld(f: Figure, skin: T.SkinnedMesh): T.Vector3 {
 }
 describe.each(['male', 'female'] as const)('ready-made %s rig', body => {
   it('uses the real source skeleton and three independently poseable skinned surfaces', () => {
-    const f = make(body), bounds = new T.Box3().setFromObject(f.root);
+    const f = make(body), bounds = new T.Box3().setFromObject(f.skin);
     expect(f.skins).toHaveLength(3);
     expect(f.root.scale.toArray()).toEqual([1, 1, 1]);
     expect(bounds.max.y - bounds.min.y).toBeCloseTo(body === 'male' ? 1.85 : 1.75, 2);
@@ -84,5 +84,52 @@ describe.each(['male', 'female'] as const)('ready-made %s rig', body => {
     expect(b.tintMaterials[0].color.equals(secondColor)).toBe(true);
     expect(a.skin.geometry).not.toBe(b.skin.geometry); expect(a.skin.skeleton).not.toBe(b.skin.skeleton);
     expect(a.bones.leftElbow).not.toBe(b.bones.leftElbow);
+  });
+  it('fits scalp above the real skull and carries it with head, neck and root poses', () => {
+    const f = make(body), scalp = f.root.getObjectByName('Scalp hair');
+    if (!(scalp instanceof T.Mesh)) throw new Error('Missing scalp hair');
+    expect(scalp.parent).toBe(f.bones.head);
+    const bounds = new T.Box3().setFromObject(scalp), skull = new T.Box3().setFromObject(f.skin);
+    expect(bounds.max.y - skull.max.y).toBeGreaterThan(0.004);
+    expect(bounds.max.y - skull.max.y).toBeLessThan(0.025);
+    expect(bounds.max.x - bounds.min.x).toBeGreaterThan(0.12);
+    expect(bounds.min.y).toBeGreaterThan(skull.max.y - 0.3);
+    const localPoint = new T.Vector3().fromBufferAttribute(scalp.geometry.getAttribute('position'), 500);
+    const before = scalp.localToWorld(localPoint.clone());
+    const headLocal = f.bones.head.worldToLocal(before.clone());
+    const brows = f.skins.find(s => s.name === 'Eyebrows')!, eyes = f.skins.find(s => s.name === 'Eyes')!;
+    const eyeY = new T.Box3().setFromObject(eyes).getCenter(new T.Vector3()).y;
+    const facialPoints = Array.from({ length: brows.geometry.getAttribute('position').count }, (_, i) =>
+      brows.getVertexPosition(i, new T.Vector3()).applyMatrix4(brows.matrixWorld));
+    const lower = facialPoints.reduce((a, b) => a.y < b.y ? a : b), upper = facialPoints.reduce((a, b) => a.y > b.y ? a : b);
+    expect(lower.y).toBeLessThan(eyeY); expect(upper.y).toBeGreaterThan(eyeY);
+    const facialLocal = [lower, upper].map(p => f.bones.head.worldToLocal(p.clone()));
+    const facialIndices = [facialPoints.indexOf(lower), facialPoints.indexOf(upper)];
+    const pose = neutralPose(); pose.neck = [0.2, -0.3, 0.1]; pose.head = [-0.4, 0.8, 0.15];
+    f.root.position.set(1, 0.3, -2); f.root.rotation.set(0.1, 0.5, 0.2); f.root.scale.set(1.2, 0.8, 1.1);
+    setFigurePose(f, pose);
+    const moved = scalp.localToWorld(localPoint.clone());
+    expect(moved.distanceTo(before)).toBeGreaterThan(1);
+    expect(moved.distanceTo(f.bones.head.localToWorld(headLocal))).toBeLessThan(1e-6);
+    facialIndices.forEach((index, i) => {
+      const actual = brows.getVertexPosition(index, new T.Vector3()).applyMatrix4(brows.matrixWorld);
+      expect(actual.distanceTo(f.bones.head.localToWorld(facialLocal[i]))).toBeLessThan(1e-5);
+    });
+  });
+  it('tints source brows/lashes and scalp together, separately from body and duplicate materials', () => {
+    const a = make(body), b = make(body), bodyColor = a.tintMaterials[0].color.clone();
+    const brows = a.skins.find(s => s.name === 'Eyebrows')!;
+    const scalp = a.root.getObjectByName('Scalp hair') as T.Mesh;
+    expect(a.hairMaterials).toContain(brows.material);
+    expect(a.hairMaterials).toContain(scalp.material);
+    const original = b.hairMaterials.map(m => m.color.getHexString());
+    a.hairMaterials.forEach(m => { expect(b.hairMaterials).not.toContain(m); m.color.set('#cc44dd'); });
+    expect(a.tintMaterials[0].color.equals(bodyColor)).toBe(true);
+    expect(b.hairMaterials.map(m => m.color.getHexString())).toEqual(original);
+    a.tintMaterials.forEach(m => m.color.set('#00ff00'));
+    expect(a.hairMaterials.every(m => m.color.getHexString() === 'cc44dd')).toBe(true);
+    scalp.geometry.dispose(); a.hairMaterials.forEach(m => m.dispose());
+    expect(b.hairMaterials.map(m => m.color.getHexString())).toEqual(original);
+    expect(b.root.getObjectByName('Scalp hair')).not.toBe(scalp);
   });
 });

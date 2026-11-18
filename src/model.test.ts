@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as T from 'three';
-import { applyPose, clone, createItem, initialScene, JOINTS, neutralPose, parseFile, poseFile, PRESETS, preset, PROP_KINDS, validatePortable } from './model';
+import { applyPose, clone, createItem, DEFAULT_HAIR_COLOR, initialScene, JOINTS, neutralPose, parseFile, poseFile, PRESETS, preset, PROP_KINDS, validatePortable } from './model';
 import { makeFigure, setFigurePose } from './rig';
 
 describe('portable scene and pose contracts', () => {
@@ -53,6 +53,27 @@ describe('portable scene and pose contracts', () => {
     }
     const one = preset('Reach'), two = preset('Reach'); one.leftElbow[0] = 2;
     expect(two.leftElbow[0]).not.toBe(2);
+  });
+  it('round-trips independent hair colors, defaults old scenes and keeps appearance out of pose files', () => {
+    const scene = initialScene();
+    scene.items[0].hairColor = '#bb3311'; scene.items[1].hairColor = '#ccddee';
+    expect(parseFile(JSON.stringify(scene))).toEqual(scene);
+    const file = poseFile(scene.items[0], 'Appearance-free pose');
+    expect(file).not.toHaveProperty('hairColor');
+    const female = applyPose(scene.items[1], file);
+    expect(female.hairColor).toBe('#ccddee'); expect(female.color).toBe(scene.items[1].color);
+    delete scene.items[0].hairColor; delete scene.items[1].hairColor;
+    const old = clone(scene), loaded = validatePortable(scene);
+    if (loaded.type !== 'scene') throw new Error('Expected scene');
+    expect(loaded.items.slice(0, 2).map(i => i.hairColor)).toEqual([DEFAULT_HAIR_COLOR, DEFAULT_HAIR_COLOR]);
+    expect(loaded.items[0].pose).toEqual(scene.items[0].pose);
+    expect(loaded.items[0].position).toEqual(scene.items[0].position);
+    expect(scene).toEqual(old);
+  });
+  it.each([null, '#fff', 'red', { color: '#ffffff' }])('rejects malformed present hair color %j', hairColor => {
+    const scene = initialScene(), candidate = { ...scene, items: [{ ...scene.items[0], hairColor }] };
+    expect(() => validatePortable(candidate)).toThrow('expected #rrggbb color');
+    expect(scene.items[0].hairColor).toBe(DEFAULT_HAIR_COLOR);
   });
 });
 describe('actual procedural rig and camera', () => {

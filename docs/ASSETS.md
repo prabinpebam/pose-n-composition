@@ -83,6 +83,25 @@ No pixel edits, geometry changes, invented textures, glTF rewrites or
 re-exports were needed. All other shipped dependency filenames match the archive
 exactly.
 
+### Runtime hair accessories and facial hair color
+
+The application adds **original MIT-licensed procedural scalp hair**, generated
+in `src/external-rig.ts`; it is not one of the archive's unshipped hairstyles.
+Rays fit a short cap to triangles strongly weighted to the actual source Head
+bone, with curved raised strands and a fuller female nape. The complete accessory
+is parented to Head while preserving its neutral world transform, so the source
+bind orientation, head/neck posing and logical root transformations remain intact.
+No new downloads, textures or third-party licenses are required.
+
+The source mesh named **Eyebrows includes modeled eyelashes as well as brows**:
+both models have paired geometry above the eyes and lash components along the
+eyelids. That whole original skinned surface is retained, not replaced. Its
+runtime material clone drops the baked base-color map so the user's selected
+hair color can tint scalp, brows and lashes consistently; the original distributed
+files and shared source templates remain unchanged. Eyes keep their own material.
+Each instance owns its hair geometries/materials, separate from body tint and
+other figures. This is basic short hair, not a hairstyle editor or simulated hair.
+
 ## Observed rig and coordinates
 
 Both files have **one 65-joint humanoid skin**, shared by three skinned meshes:

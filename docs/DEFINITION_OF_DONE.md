@@ -26,6 +26,7 @@ Unchecked items are not completion claims. Evidence is recorded after execution.
 |---|---|---|
 | Distinct figures | Legally redistributable ready-made male/female rigged bodies, verified sources/licenses, semantic-joint mapping; multiple coexist | PASS: Quaternius free Standard Superhero pair, exact included CC0; 65 bones / three skins each, 17 mapped controls; actual browser screenshots and source-rig tests |
 | Static posing | Select named joints, rotate FK, root W/E/R, presets, neutral reset, undo/redo | PASS: source-rig tests on both sexes; browser left elbow -110, opposite elbow 0; neutral/reach/seated/contrapposto and undo/redo; root carries eyes/eyebrows too |
+| Hair appearance | Visible scalp hair, brows and lashes on both source figures; independent per-figure hair color follows head; scene persistence, old-save compatibility and history | PASS locally: 40-test suite; close-up browser checks, both-sex duplicate/delete isolation, head turns, color undo/redo and scene save-refresh-load; live release check follows publication |
 | Props | Lamp, table, chair, desk, couch, bed, windowed room; transforms and colors | PASS: four persisted prop tests (including nine window-opening rays and material isolation); all seven coexist in actual 10-object UI scene |
 | Lighting | Position, target, color and intensity change actual scene illumination | PASS: actual image mean RGB differences 12.40 / 73.94 / 42.43 / 73.94 respectively |
 | Camera | Independent position/aim/FOV/aspect, inspectable framed view, real toggleable depth of field | PASS: exact 50 mm projection test; camera-view UI; three-depth focus fixture and four-vs-one actual renderer calls |
@@ -33,7 +34,7 @@ Unchecked items are not completion claims. Evidence is recorded after execution.
 | Persistence | IndexedDB named scene/pose library, localStorage preferences; visible failures | PASS: save/refresh/load restored root X -1.25, color #cc9966, elbow -95; preferences survive refresh; injected storage/preference denials visible |
 | Portability | Versioned JSON scene/pose download/import with finite bounded schema validation and size limits | PASS: full scene roundtrip exactly equals stored document; pose JSON restored all 17 joints; version and non-finite imports visibly reject without mutation |
 | Navigation | Orbit/pan/zoom, gizmos, shortcuts and discoverable help, usable narrow window | PASS: actual mouse gizmo drag changed root Y to 0.27976; orbit disabled during drag; Help workflow; 900 × 700 and 500 × 800 without horizontal overflow |
-| Quality | Strict build, focused model tests and browser workflow, no uncaught application errors | PASS: 31/31 tests in three files; strict TypeScript + Vite build; fresh browser source-asset load without application errors |
+| Quality | Strict build, focused model tests and browser workflow, no uncaught application errors | PASS: 40/40 tests in three files; strict TypeScript + Vite build; fresh browser source-asset load without application errors |
 | Privacy/license | No uploads/telemetry; licensed figures and original props; dependencies/license documented | PASS: original props, exact source CC0 + provenance/hashes, full deployed software notices; same-site static assets only |
 | Deployment | Public repository under authenticated personal login; actual Pages HTTPS URL responds and renders | PASS: public prabinpebam/pose-n-composition; sourced release 0dd2aba, Actions 44362640034 successful; actual live model loading and workflow verified |
 
@@ -106,3 +107,37 @@ roughly 31.5 MB initial assets, artistic raster bokeh rather than calibrated
 f-stops, browser-local storage requiring portable backups, and desktop-first UI.
 The production bundle emits Vite's non-failing size advisory; no type/build/test
 failures are hidden by that warning.
+
+## Hair appearance update (2026-11-19)
+
+- Added original short scalp hair fitted to each source head's actual weighted
+  triangles; 32 curved strand ridges are merged with the cap into one mesh.
+  Head attachment preserves the source bind/rest transform. Source brows and
+  modeled lashes remain skinned and are recolored together with scalp hair.
+- Added independent **Hair color** per figure. Body tint and eye materials stay
+  separate. Appearance is scene data; presets/reset and portable pose application
+  do not replace it.
+- Optional additive v1 `hairColor` defaults missing legacy fields to `#3b2720`.
+  Present malformed values reject visibly without mutating the scene. No database
+  version change, record rewrite, storage clearing or pose-format change.
+- **40/40 tests, strict TypeScript and production build pass.** Nine new cases
+  cover old scenes, independent colors, malformed values, appearance-free poses,
+  actual scalp fit, head/neck/root transformations of scalp/brows/lashes, and
+  same-body material/geometry isolation.
+- Actual browser: male `#c48a38`, female `#653c90`, female body `#e0b894`;
+  save -> refresh -> named load restores those independent values. Color undo
+  restores `#3b2720` and redo restores `#c48a38`.
+- Both male and female duplicates were recolored `#00dd88`, moved away, head-rotated
+  35 degrees and deleted: each survivor kept its original hair color and head Y 0.
+  Opposite head turns of +/-30 degrees and roll +/-8 visibly carry hair/facial
+  details with the head.
+- Exported scene JSON contains both colors; exported pose has all 17 joints and
+  no appearance. Legacy scene import defaults both colors while preserving roots
+  (-0.14 / 0.14); undo restores colors. `hairColor: null` produces the visible
+  `Invalid file: expected #rrggbb color` error and leaves hair unchanged.
+- Actual hair close-up with enabled DOF exported a **1600 x 1067 PNG,
+  1,158,642 bytes**; both gold and purple hair are present in decoded pixels.
+- Runtime accessories are original MIT geometry; source facial surfaces retain
+  the exact CC0 distribution license. No new dependencies, assets or downloads.
+  Basic short hairstyles only: no hairstyle editing, separate lash/brow colors
+  or hair simulation.
