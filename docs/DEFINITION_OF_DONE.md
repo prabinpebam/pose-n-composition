@@ -35,7 +35,7 @@ Unchecked items are not completion claims. Evidence is recorded after execution.
 | Navigation | Orbit/pan/zoom, gizmos, shortcuts and discoverable help, usable narrow window | PASS: actual mouse gizmo drag changed root Y to 0.27976; orbit disabled during drag; Help workflow; 900 × 700 and 500 × 800 without horizontal overflow |
 | Quality | Strict build, focused model tests and browser workflow, no uncaught application errors | PASS: 31/31 tests in three files; strict TypeScript + Vite build; fresh browser source-asset load without application errors |
 | Privacy/license | No uploads/telemetry; licensed figures and original props; dependencies/license documented | PASS: original props, exact source CC0 + provenance/hashes, full deployed software notices; same-site static assets only |
-| Deployment | Public repository under authenticated personal login; actual Pages HTTPS URL responds and renders | Interim release verified live; final sourced-figure deployment verification pending |
+| Deployment | Public repository under authenticated personal login; actual Pages HTTPS URL responds and renders | PASS: public prabinpebam/pose-n-composition; sourced release 0dd2aba, Actions 44362640034 successful; actual live model loading and workflow verified |
 
 ## Evidence log (2026-11-18)
 
@@ -69,3 +69,40 @@ Unchecked items are not completion claims. Evidence is recorded after execution.
 - Deliberately injected network/storage failures and pre-integration development
   hot-reload errors are not counted as clean-run errors. Fresh final loads and
   normal UI workflows are the relevant runtime evidence.
+
+## Final public release verification
+
+- **App:** https://prabinpebam.github.io/pose-n-composition/
+- **Source:** https://github.com/prabinpebam/pose-n-composition
+- **Verified implementation release:** `0dd2aba`.
+- **Successful Pages build/deploy:** https://github.com/prabinpebam/pose-n-composition/actions/runs/44362640034
+- Live index, production JavaScript/CSS, full software notices and the exact
+  806-byte model license returned **HTTP 200**. Both original model glTF SHA-256
+  hashes and license hash also match their committed Git blobs.
+- Actual live browser made **18 model-related requests / 16 unique asset URLs**
+  (two shared eye textures requested by both figures). Every glTF, BIN and PNG
+  returned **200** under `/pose-n-composition/models/`, with no new application errors.
+- Live UI changed left elbow to -80° while right elbow remained 0°, added a chair,
+  inspected a 60 mm / 1:1 camera with DOF, and exported a **552,311-byte
+  1600 × 1600 PNG**. Named scene save → browser refresh → load reproduced all four
+  objects, elbow -80°, lens 60 mm, aspect 1:1 and enabled DOF.
+- Final local full suite: **31/31 tests in three files**, strict TypeScript and
+  production build successful. CI repeats those checks before deploying.
+- Final DPR 2 + enabled DOF portrait export encoded **1600 × 2000**, restored the
+  **640 × 800** preview drawing buffer and DPR 2, without context loss or errors.
+- Output-color verification used four flat in-focus color patches at exposure
+  1.3: direct rendering versus enabled DOF differed by at most **1/255** in any
+  channel; camera-view versus decoded exported PNG differed by **0/255**.
+  Example direct `[228,203,165]`, DOF/PNG `[228,202,165]`; gray remained
+  `[186,186,186]` in all three. DOF does not introduce an exposure/gamma shift.
+- Independent browser verification inspected **all 17 semantic joint triples**
+  from the pre-replacement male pose and applied it to the sourced female:
+  **17/17 matched exactly**, while female root `[0.55, 0, 0.05]` remained unchanged.
+  Male and female Neutral, Seated, Reach and Contrapposto remained coherent.
+
+All acceptance rows above have concrete evidence. Known scope limits remain
+intentional: FK only, no collision/ground snap, source Superhero proportions,
+roughly 31.5 MB initial assets, artistic raster bokeh rather than calibrated
+f-stops, browser-local storage requiring portable backups, and desktop-first UI.
+The production bundle emits Vite's non-failing size advisory; no type/build/test
+failures are hidden by that warning.
