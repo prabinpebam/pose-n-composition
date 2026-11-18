@@ -5,10 +5,12 @@ const DB_NAME = 'pose-n-composition-v1';
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1);
+    let failed = false;
     request.onupgradeneeded = () => request.result.createObjectStore('library', { keyPath: 'id' });
-    request.onerror = () => reject(new Error(`Storage unavailable: ${request.error?.message ?? 'IndexedDB error'}`));
-    request.onblocked = () => reject(new Error('Storage upgrade blocked. Close other Pose & Composition tabs and retry.'));
+    request.onerror = () => { failed = true; reject(new Error(`Storage unavailable: ${request.error?.message ?? 'IndexedDB error'}`)); };
+    request.onblocked = () => { failed = true; reject(new Error('Storage upgrade blocked. Close other Pose & Composition tabs and retry.')); };
     request.onsuccess = () => {
+      if (failed) { request.result.close(); return; }
       request.result.onversionchange = () => request.result.close();
       resolve(request.result);
     };

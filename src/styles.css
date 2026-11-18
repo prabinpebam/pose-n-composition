@@ -72,7 +72,7 @@ h3 { font-size: 12px; font-weight: 650; margin: 0 0 10px; color: var(--cp-text);
 p { margin: 6px 0 12px; }
 small { display: block; font-size: 10px; }
 kbd { font: 10px Consolas, "Courier New", Courier, monospace; color: var(--cp-text-soft); margin-left: 5px; }
-.app { height: 100dvh; display: flex; flex-direction: column; min-height: 480px; }
+.app { position: relative; height: 100dvh; display: flex; flex-direction: column; min-height: 480px; }
 .topbar { height: 68px; flex-shrink: 0; border-bottom: 1px solid var(--cp-border); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; gap: 16px; background: var(--cp-bg-elevated); }
 .brand { display: flex; align-items: center; gap: 12px; color: var(--cp-text); text-decoration: none; font-size: 17px; font-weight: 650; letter-spacing: -.4px; white-space: nowrap; }
 .brand small { color: var(--cp-text-soft); letter-spacing: 1.5px; font-size: 8px; margin-top: 2px; }
@@ -110,6 +110,7 @@ canvas { display: block; max-width: 100%; max-height: 100%; touch-action: none; 
 .viewport-bottom span, .viewport-bottom button { color: var(--cp-text-muted); background: var(--cp-panel-strong); font-size: 10px; border: 1px solid var(--cp-border); padding: 5px 8px; border-radius: 6px; }
 .viewport-bottom button { pointer-events: auto; }
 .statusbar { height: 30px; display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px; color: var(--cp-text-soft); font-size: 10px; background: var(--cp-bg-elevated); border-top: 1px solid var(--cp-border); }
+.statusbar a { color: var(--cp-link); }
 .tabs { display: flex; height: 51px; flex-shrink: 0; border-bottom: 1px solid var(--cp-border); padding: 8px; gap: 5px; }
 .tabs button { flex: 1; background: var(--cp-bg-elevated); border-color: var(--cp-bg-elevated); font-size: 12px; }
 .tabs button[aria-selected="true"] { background: var(--cp-accent-soft); border-color: var(--cp-accent); color: var(--cp-accent); }
@@ -129,6 +130,11 @@ canvas { display: block; max-width: 100%; max-height: 100%; touch-action: none; 
 .toast { position: fixed; bottom: 48px; left: 50%; transform: translateX(-50%); max-width: min(580px, 90vw); border-radius: 12px; padding: 12px 12px 12px 16px; background: var(--cp-surface); border: 1px solid var(--cp-success); box-shadow: var(--cp-shadow); display: flex; align-items: center; gap: 12px; z-index: 20; }
 .toast.error { border-color: var(--cp-danger); }
 .toast button { border: 0; flex-shrink: 0; }
+.boot-overlay { position: absolute; inset: 68px 0 0; z-index: 15; display: grid; place-items: center; background: var(--cp-overlay); padding: 24px; }
+.boot-card { background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 16px; max-width: 460px; padding: 24px; box-shadow: var(--cp-shadow); }
+.boot-card.error { border-color: var(--cp-danger); }
+.boot-card p { color: var(--cp-text-muted); margin: 12px 0 20px; overflow-wrap: anywhere; }
+.boot-card small { color: var(--cp-text-soft); margin-top: 16px; }
 .modal-backdrop { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--cp-overlay); padding: 24px; z-index: 30; }
 .modal { width: 640px; max-width: 100%; max-height: 90dvh; display: flex; flex-direction: column; background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 16px; box-shadow: var(--cp-shadow); }
 .modal .panel-heading { flex-shrink: 0; border-bottom: 1px solid var(--cp-border); }

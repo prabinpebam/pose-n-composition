@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Studio } from './engine';
+import { loadExternalFigures } from './external-rig';
 import { applyPose, clone, createItem, degrees, initialScene, isBody, JOINTS, MAX_FILE_BYTES, parseFile, poseFile, PRESETS, preset, PROP_KINDS, radians, validatePortable, type Item, type Joint, type Portable, type SceneState, type Vec3 } from './model';
 import { deleteLocal, download, downloadBlob, listSaved, saveLocal, type Saved } from './storage';
 
@@ -20,7 +21,10 @@ export function App() {
   const [saved, setSaved] = useState<Saved[]>([]);
   const [saveName, setSaveName] = useState('My study');
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true), [loadError, setLoadError] = useState<string | null>(null), [retry, setRetry] = useState(0);
   const host = useRef<HTMLDivElement>(null), engine = useRef<Studio | null>(null), file = useRef<HTMLInputElement>(null);
+  const liveSettings = useRef({ selected, joint, view, mode, showJoints, showHelpers });
+  liveSettings.current = { selected, joint, view, mode, showJoints, showHelpers };
   const notify = useCallback((text: string, error = false) => setNotice({ text, error }), []);
   const report = useCallback((e: unknown) => notify(e instanceof Error ? e.message : String(e), true), [notify]);
   const commit = useCallback((next: SceneState) => {
@@ -42,11 +46,24 @@ export function App() {
     const next = clone(current.current); next.items = next.items.filter(i => i.id !== selected); commit(next); setSelected(null); setJoint(null);
   }, [selected, commit]);
   useEffect(() => {
-    try {
-      const studio = new Studio(host.current!, { change: commit, select, error: report }); engine.current = studio; studio.sync(current.current);
-      return () => { engine.current = null; studio.dispose(); };
-    } catch (e) { report(e); }
-  }, [commit, select, report]);
+    let cancelled = false;
+    setLoading(true); setLoadError(null);
+    loadExternalFigures().then(() => {
+      if (cancelled) return;
+      const studio = new Studio(host.current!, { change: commit, select, error: report });
+      engine.current = studio;
+      try {
+        const s = liveSettings.current;
+        studio.sync(current.current); studio.select(s.selected, s.joint); studio.setMode(s.mode);
+        studio.setHelpers(s.showJoints, s.showHelpers); studio.setView(s.view);
+        setLoading(false);
+      } catch (error) { engine.current = null; studio.dispose(); throw error; }
+    }).catch(error => {
+      if (cancelled) return;
+      setLoading(false); setLoadError(error instanceof Error ? error.message : String(error));
+    });
+    return () => { cancelled = true; engine.current?.dispose(); engine.current = null; };
+  }, [commit, select, report, retry]);
   useEffect(() => { engine.current?.sync(doc); }, [doc]);
   useEffect(() => { engine.current?.select(selected, joint); }, [selected, joint, doc]);
   useEffect(() => { engine.current?.setView(view); }, [view]);
@@ -56,10 +73,8 @@ export function App() {
       const raw = localStorage.getItem('pose-n-composition:preferences');
       if (raw) {
         const p: unknown = JSON.parse(raw);
-        if (p && typeof p === 'object') {
-          if ('joints' in p && typeof p.joints === 'boolean') setShowJoints(p.joints);
-          if ('helpers' in p && typeof p.helpers === 'boolean') setShowHelpers(p.helpers);
-        }
+        if (!p || typeof p !== 'object' || !('joints' in p) || typeof p.joints !== 'boolean' || !('helpers' in p) || typeof p.helpers !== 'boolean') throw new Error('Stored preferences are malformed. Toggle viewport helpers to replace them.');
+        setShowJoints(p.joints); setShowHelpers(p.helpers);
       }
     } catch (e) { report(new Error(`Preferences unavailable: ${e instanceof Error ? e.message : String(e)}`)); }
     listSaved().then(setSaved).catch(report);
@@ -77,6 +92,7 @@ export function App() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.closest('input, textarea, select, [contenteditable]')) return;
+      if (loading || loadError) return;
       if (e.key === 'Escape') { setHelp(false); setJoint(null); }
       if (help) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(e.shiftKey); }
@@ -90,7 +106,7 @@ export function App() {
       else if (e.key === '?') setHelp(true);
     };
     window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler);
-  }, [undo, removeSelected, help]);
+  }, [undo, removeSelected, help, loading, loadError]);
   const add = (kind: Item['kind']) => {
     if (doc.items.length >= 64) { report(new Error('Scene limit: 64 objects.')); return; }
     if (kind === 'light' && doc.items.filter(i => i.kind === 'light').length >= 8) { report(new Error('Scene limit: 8 lights.')); return; }
@@ -131,10 +147,10 @@ export function App() {
         <button onClick={() => undo(true)} disabled={!future.current.length} title="Redo · Ctrl Shift Z">Redo</button>
         <button onClick={() => setTab('library')}>Save / Load</button>
         <button onClick={() => setHelp(true)}>Help <kbd>?</kbd></button>
-        <button className="primary" onClick={png} disabled={busy}>Export PNG</button>
+        <button className="primary" onClick={png} disabled={busy || loading || loadError !== null}>Export PNG</button>
       </div>
     </header>
-    <div className="workspace">
+    <div className="workspace" inert={loading || loadError !== null}>
       <aside className="scene-panel" aria-label="Scene objects">
         <div className="panel-heading"><h2>Scene</h2><span className="badge">{doc.items.length} objects</span></div>
         <div className="scroll">
@@ -154,7 +170,7 @@ export function App() {
           <div className="viewport-caption"><span className="view-pill">{view ? `COMPOSITION / ${doc.camera.focalLength} mm / ${doc.camera.aspect}${doc.camera.dof ? ' / DOF ON' : ''}` : joint ? `LOCAL JOINT / ${label(joint)}` : 'PERSPECTIVE / EDITOR'}</span></div>
           {!view && <div className="viewport-bottom"><span>Drag: orbit · Right drag: pan · Scroll: zoom</span><button onClick={() => setHelp(true)}>Controls & workflow</button></div>}
         </div>
-        <footer className="statusbar"><span>{item ? `${item.name}${joint ? ` / ${label(joint)}` : ' / Root transform'}` : 'Select an object to begin'}</span><span>{view ? 'Camera view · editor helpers hidden' : 'Meters · FK posing · WebGL'}</span></footer>
+        <footer className="statusbar"><span>{item ? `${item.name}${joint ? ` / ${label(joint)}` : ' / Root transform'}` : 'Select an object to begin'}</span><span>{view ? 'Camera view · editor helpers hidden' : 'Meters · FK posing · WebGL'} · <a href={`${import.meta.env.BASE_URL}THIRD_PARTY_NOTICES.txt`} target="_blank" rel="noreferrer">Licenses</a></span></footer>
       </main>
       <aside className="inspector" aria-label="Inspector">
         <div className="tabs" role="tablist">{(['object', 'camera', 'library'] as const).map(t => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{label(t)}</button>)}</div>
@@ -190,8 +206,9 @@ export function App() {
         </div>
       </aside>
     </div>
+    {(loading || loadError) && <div className="boot-overlay"><div className={`boot-card ${loadError ? 'error' : ''}`} role={loadError ? 'alert' : 'status'}><div className="eyebrow">QUATERNIUS / CC0 RIGGED FIGURES</div><h2>{loadError ? 'The figure assets could not be loaded' : 'Opening your figure studio'}</h2><p>{loadError ?? 'Loading the ready-made male and female rigs and their textures from this site. First load is about 30 MB; no scene data is uploaded.'}</p>{loadError && <button className="primary" onClick={() => setRetry(n => n + 1)}>Retry loading figures</button>}<small>Your existing local scenes and poses are not changed.</small></div></div>}
     {notice && <div className={`toast ${notice.error ? 'error' : ''}`} role={notice.error ? 'alert' : 'status'}><span>{notice.text}</span><button aria-label="Dismiss notification" onClick={() => setNotice(null)}>×</button></div>}
-    {help && <div className="modal-backdrop" onClick={() => setHelp(false)}><div className="modal" role="dialog" aria-modal="true" aria-label="Studio help" onClick={e => e.stopPropagation()}><div className="panel-heading"><h2>A small studio. A clear workflow.</h2><button onClick={() => setHelp(false)} aria-label="Close help">×</button></div><div className="modal-content"><h3>01 / Pose</h3><p>Add or select a male/female figure. Choose a preset, then select a gold joint or use <strong>Editing</strong>. Drag a colored rotation ring or enter local XYZ degrees. Reset a joint or the whole pose. Select Root to move the entire figure. No IK, joint limits, animation or finger posing; extreme FK rotations can intersect the body.</p><h3>02 / Compose</h3><p>Add furniture and lights. Move, rotate and scale roots. Light aim is its target, not its Euler rotation. Open Camera, set position/aim/lens/aspect or use the editor angle. Inspect Camera view. Enable lens blur and adjust focus distance. Export PNG always uses this camera, with no helpers.</p><h3>03 / Keep your work</h3><p>Save / Load stores named scenes and poses in IndexedDB. Download JSON for portable backups. Import validates the complete file before changing the scene. Both body types share compatible semantic joints. Reloading starts a fresh stage; load your named save from the library.</p><dl className="shortcuts"><dt>Left drag / right drag / wheel</dt><dd>Orbit / pan / zoom</dd><dt>W / E / R</dt><dd>Whole-object move / rotate / scale</dd><dt>F / C / Escape</dt><dd>Frame selected / camera / root editing</dd><dt>Ctrl Z / Ctrl Shift Z</dt><dd>Undo / redo (up to 100 edits)</dd><dt>Delete / ?</dt><dd>Delete selected / help</dd></dl><p className="muted">Original procedural figures and props. Static reference mannequins, not medical anatomy. Real-time bokeh is a raster approximation; transparent materials and physically accurate aperture are out of scope. WebGL required. No uploads, telemetry, backend or accounts.</p><button className="primary" onClick={() => setHelp(false)}>Start creating</button></div></div></div>}
+    {help && <div className="modal-backdrop" onClick={() => setHelp(false)}><div className="modal" role="dialog" aria-modal="true" aria-label="Studio help" onClick={e => e.stopPropagation()}><div className="panel-heading"><h2>A small studio. A clear workflow.</h2><button onClick={() => setHelp(false)} aria-label="Close help">×</button></div><div className="modal-content"><h3>01 / Pose</h3><p>Add or select a male/female figure. Choose a preset, then select a gold joint or use <strong>Editing</strong>. Drag a colored rotation ring or enter neutral-relative XYZ degrees. Reset a joint or the whole pose. Select Root to move the entire figure. No IK, joint limits, animation or finger posing; extreme FK rotations can intersect the body.</p><h3>02 / Compose</h3><p>Add furniture and lights. Move, rotate and scale roots. Light aim is its target, not its Euler rotation. Open Camera, set position/aim/lens/aspect or use the editor angle. Inspect Camera view. Enable lens blur and adjust focus distance. Export PNG always uses this camera, with no helpers. Figure color tints its body texture; eyes and eyebrows retain their materials.</p><h3>03 / Keep your work</h3><p>Save / Load stores named scenes and poses in IndexedDB. Download JSON for portable backups. Import validates the complete file before changing the scene. Both body types share compatible semantic joints, including v1 saves from the earlier procedural figures. Reloading starts a fresh stage; load your named save from the library.</p><dl className="shortcuts"><dt>Left drag / right drag / wheel</dt><dd>Orbit / pan / zoom</dd><dt>W / E / R</dt><dd>Whole-object move / rotate / scale</dd><dt>F / C / Escape</dt><dd>Frame selected / camera / root editing</dd><dt>Ctrl Z / Ctrl Shift Z</dt><dd>Undo / redo (up to 100 edits)</dd><dt>Delete / ?</dt><dd>Delete selected / help</dd></dl><p className="muted">Figures: Quaternius Universal Base Characters, free Standard edition, Superhero male/female, CC0. Muscular reference bodies, not medical anatomy. Props are original procedural geometry. Real-time bokeh is a raster approximation, not calibrated f-stop optics. WebGL required. No uploads, telemetry, backend or accounts.</p><button className="primary" onClick={() => setHelp(false)}>Start creating</button></div></div></div>}
   </div>;
 }
 function label(value: string) { return value.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^\w/, c => c.toUpperCase()); }

@@ -1,8 +1,18 @@
 # Pose & Composition
 
 An original, browser-only figure posing and composition studio. Build a static
-reference scene with rigged male/female artist mannequins, furniture, lights and
+reference scene with ready-made rigged male/female bodies, furniture, lights and
 an independent composition camera. No accounts, backend, uploads or telemetry.
+
+[Open the app](https://prabinpebam.github.io/pose-n-composition/) ·
+[Source](https://github.com/prabinpebam/pose-n-composition) ·
+[Research](docs/RESEARCH.md) · [Acceptance evidence](docs/DEFINITION_OF_DONE.md)
+
+The figures are **Quaternius Universal Base Characters, free Standard edition,
+Superhero male/female**, under the exact distribution's CC0 license. They have
+muscular/stylized proportions, not the paid Regular or Teen variants.
+See [asset provenance and license](docs/ASSETS.md). First load downloads about
+30 MB of same-site model/textures; load errors are visible and retryable.
 
 ## Run
 
@@ -73,6 +83,21 @@ below the viewport; desktop is the primary workflow.
 - Storage keys are app-prefixed because GitHub Pages repositories on the same
   owner domain share an origin. Browser storage is not a guaranteed backup.
 
+### Rig v1 compatibility
+
+Pose angles are **semantic neutral-relative XYZ radians in the character's
+anatomical frame**, not native glTF bone Euler rotations. The adapter preserves
+the source's nonidentity bind quaternions and uses a per-body neutral/basis
+transform. Left/right are anatomical; +X is left, +Y up, +Z forward. Neutral
+lowers the source T-pose arms into a relaxed standing reference.
+
+Existing v1 local scenes/poses created with the earlier procedural bodies retain
+their semantic angles, root transforms and colors on the source rigs. The body
+surface/proportions differ; world-space joint positions are not promised equal
+across bodies. No IndexedDB or preference data is cleared or rewritten by this
+model change. Unit/height normalization lives inside the figure wrapper (male
+1.85 m, female 1.75 m); the user's root scale remains 1.
+
 ## Camera and rendering
 
 Editor orbit never modifies the saved composition camera. **Use editor angle**
@@ -95,9 +120,13 @@ PNG hides joints, light icons, gizmos and grid.
 - Direct Three.js WebGLRenderer, OrbitControls and TransformControls: a small
   dependency surface with explicit camera/drag/resource ownership. R3F/Drei are
   credible alternatives; not needed to wrap this small imperative renderer.
-- Procedural originals: a real 17-bone `Skeleton` and `SkinnedMesh`, continuous
-  weighted torso/limbs with blended elbow/knee neighborhoods. Distinct torso,
-  shoulder and hip proportions, rather than a renamed shared dummy.
+- Ready-made original-source Quaternius male/female meshes: 65 bones and three
+  skinned meshes each; 17 meaningful joint controls keep posing simple. Actual
+  source rest orientations are preserved. Skeleton-aware clones have independent
+  bones, geometry and materials, so posing/recoloring one never mutates another.
+- Furnishings are original procedural geometry. A legacy procedural figure
+  generator remains only as a regression fixture; it is not the live model
+  source or a silent fallback on asset errors.
 - Native IndexedDB and localStorage avoid a backend and persistence dependencies.
 - Three's installed BokehPass implementation/types—not unrelated wrapper docs—
   define the DOF contract. See [research](docs/RESEARCH.md).
@@ -105,9 +134,10 @@ PNG hides joints, light icons, gizmos and grid.
 ## Scope and limitations
 
 Static FK posing only: no IK, joint constraints, animation, finger articulation,
-rig authoring or imported models. Mannequins are stylized reference bodies, not
-medical anatomy. Extreme rotations can self-intersect; shoulder/hand/foot joins
-are simplified mannequin anatomy. Furniture and windowed walls are original,
+rig authoring or user model import. Figures are stylized muscular reference bodies,
+not medical anatomy. Extreme rotations can self-intersect or pinch. Figure
+color multiplies the source body texture as a tint; it does not replace facial
+details or promise an exact flat swatch under lighting. Furniture and windowed walls are original,
 simple procedural references, not architectural CAD. No collision/ground snap.
 The window openings are real geometry gaps; no external textures.
 
@@ -121,8 +151,8 @@ rendering. Lights always aim at their target; root Euler rotation is not light a
 ## Verification and deployment
 
 `npm test` covers portable scene/pose round trips, rejected malformed/unbounded
-files, presets, actual skeleton hierarchy and isolation, skin-root movement,
-distinct body proportions and camera projection. The
+files, presets, actual source skeletons/rest math and isolation, all three skins'
+root movement, reached-wrist picking, prop/window geometry and camera projection. The
 [Definition of Done](docs/DEFINITION_OF_DONE.md) records browser and live evidence.
 
 GitHub Actions runs tests and a strict build, uploads `dist`, and deploys to
@@ -131,9 +161,12 @@ runtime network requests except its own static assets.
 
 ## License and privacy
 
-Original code and procedural assets are MIT licensed. No code, models, textures,
-branding or interface from PoseMy.Art was copied; its public capabilities were
-used only as functional reference. Dependency notices are in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Original code and procedural furnishings are MIT licensed. Quaternius figure
+assets retain their included CC0 license and are credited in [ASSETS.md](docs/ASSETS.md).
+No code, models, textures, branding or interface from PoseMy.Art was copied; its
+public capabilities were used only as functional reference. Dependency notices are in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the
+[deployed full license notices](https://prabinpebam.github.io/pose-n-composition/THIRD_PARTY_NOTICES.txt),
+also linked from the viewport footer.
 All authored scene/pose content stays on your device unless you choose to share
 downloaded files. GitHub Pages hosting itself has GitHub's normal request logging.

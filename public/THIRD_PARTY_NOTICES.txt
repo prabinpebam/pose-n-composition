@@ -1,0 +1,114 @@
+THIRD-PARTY NOTICES
+===================
+
+This application includes the third-party software identified below.
+The notices reproduce the applicable installed package license text.
+Installed versions inspected: 2026-11-18.
+
+1. React, React DOM and Scheduler
+--------------------------------
+
+React 19.3.1, React DOM 19.3.1 and Scheduler 0.28.0.
+Sources: node_modules/react/LICENSE, node_modules/react-dom/LICENSE and
+node_modules/scheduler/LICENSE. These three installed license files are
+identical; their full text is reproduced once here for all three packages.
+
+MIT License
+
+Copyright (c) Meta Platforms, Inc. and affiliates.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+2. Three.js
+------------
+
+Three.js 0.181.2, including the Three.js addons used by this application.
+Source: node_modules/three/LICENSE.
+
+The MIT License
+
+Copyright © 2010-2025 three.js authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+3. Vite module-preload polyfill
+------------------------------
+
+Vite 7.3.8 supplies the module-preload polyfill included in the production
+JavaScript bundle. Only its applicable core license is reproduced here;
+Vite's build-time dependency collection is not shipped with the application.
+Source: the "Vite core license" section of node_modules/vite/LICENSE.md.
+
+MIT License
+
+Copyright (c) 2019-present, VoidZero Inc. and Vite contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+4. Quaternius character assets: separate license
+------------------------------------------------
+
+The ready-made male and female character models are by Quaternius.
+They are not relicensed by the software notices above.
+
+The selected Universal Base Characters [Standard] archive includes its own
+CC0 1.0 Universal Public Domain Dedication. Its exact original license is
+retained at this relative deployed-site path:
+
+models/external/quaternius-universal-base/License_Standard.txt
+
+The repository provenance document is docs/ASSETS.md. It records the exact
+distribution, source URLs, hashes, included license, texture filename repairs
+and the distinction between this pack-specific license and the site's global
+license. Do not assume that another asset distribution has identical terms.
+
+Official pack: https://quaternius.com/packs/universalbasecharacters.html
+Official download: https://quaternius.itch.io/universal-base-characters

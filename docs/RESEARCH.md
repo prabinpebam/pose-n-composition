@@ -24,6 +24,27 @@ focus semantics apply, not the React-wrapper focus API. Research acceptance gate
 for body silhouettes, persistence, real-camera DOF and live Pages deployment remain
 unchanged.
 
+## Ready-made asset decision addendum
+
+The owner subsequently requested ready-made rigged figures instead of original
+procedural bodies. On 2026-11-18 the official free **Quaternius Universal Base
+Characters [Standard]** archive was acquired and its actual included
+`License_Standard.txt` verified as **CC0 1.0 Universal**. Only its Superhero
+male/female pair is available in this free distribution; Regular and Teen bodies
+advertised for the complete kit are not included. The selected original glTFs,
+required binaries/PNGs and exact license are in
+[the selected asset directory](../public/models/external/quaternius-universal-base/).
+
+[Asset provenance and integration evidence](./ASSETS.md) records exact source
+URLs, archive/model hashes, the pack-specific CC0 versus global QAL discrepancy,
+two byte-identical filename repairs, the shared 65-joint rig, measured native
+bounds and successful actual browser GLTFLoader checks. Selection relies on the
+specific pack's explicit CC0 declarations and included license, not a blanket
+assumption about the creator's current global terms. The earlier recommendation
+for original bodies remains historical research, superseded for implementation
+by this owner-requested asset decision. Body-quality and complete integration
+gates still require visual and behavioral QA.
+
 ## 1. Decision in brief
 
 **Recommend Vite + TypeScript + stable React + React Three Fiber + selected Drei

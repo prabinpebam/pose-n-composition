@@ -5,7 +5,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { makeFigure, setFigurePose, type Figure } from './rig';
+import { getJointRotation, setFigurePose, type Figure } from './rig';
+import { makeExternalFigure } from './external-rig';
 import { makeProp } from './props';
 import { clone, isBody, JOINTS, validatePortable, type Item, type Joint, type SceneState, type Vec3 } from './model';
 
@@ -104,7 +105,7 @@ export class Studio {
       let entry = this.entries.get(item.id);
       if (!entry) {
         if (isBody(item.kind)) {
-          const figure = makeFigure(item.kind, item.color);
+          const figure = makeExternalFigure(item.kind, item.color);
           const markers = JOINTS.map(j => {
             const m = new T.Mesh(new T.SphereGeometry(0.022, 10, 8), new T.MeshBasicMaterial({ color: '#ffd07d', depthTest: false, transparent: true, opacity: 0.9 }));
             m.renderOrder = 20; m.userData.joint = j; figure.bones[j].add(m); return m;
@@ -123,7 +124,10 @@ export class Studio {
         entry.root.userData.itemId = item.id; this.entries.set(item.id, entry); this.scene.add(entry.root);
       }
       entry.root.position.fromArray(item.position); entry.root.rotation.set(...item.rotation); entry.root.scale.fromArray(item.scale);
-      if (entry.figure && item.pose) { setFigurePose(entry.figure, item.pose); (entry.figure.skin.material as T.MeshStandardMaterial).color.set(item.color); }
+      if (entry.figure && item.pose) {
+        setFigurePose(entry.figure, item.pose);
+        entry.figure.tintMaterials.forEach(material => material.color.set(item.color));
+      }
       else if (!entry.light) entry.root.traverse(node => {
         if (node instanceof T.Mesh && node.material instanceof T.MeshStandardMaterial && !node.userData.fixedColor) node.material.color.set(item.color);
       });
@@ -181,7 +185,7 @@ export class Studio {
     if (!this.state || !this.selected) return;
     const next = clone(this.state), entry = this.entries.get(this.selected), item = next.items.find(i => i.id === this.selected);
     if (!entry || !item) return;
-    if (this.joint && entry.figure && item.pose) item.pose[this.joint] = entry.figure.bones[this.joint].rotation.toArray().slice(0, 3) as Vec3;
+    if (this.joint && entry.figure && item.pose) item.pose[this.joint] = getJointRotation(entry.figure, this.joint);
     else {
       item.position = entry.root.position.toArray() as Vec3; item.rotation = entry.root.rotation.toArray().slice(0, 3) as Vec3; item.scale = entry.root.scale.toArray() as Vec3;
     }
@@ -224,8 +228,9 @@ export class Studio {
       const blob = await new Promise<Blob>((resolve, reject) => this.renderer.domElement.toBlob(b => b ? resolve(b) : reject(new Error('PNG encoding failed.')), 'image/png'));
       return blob;
     } finally {
+      this.setView(wasView);
       this.renderer.setPixelRatio(pixelRatio); this.composer?.setPixelRatio(pixelRatio);
-      this.setView(wasView); this.render();
+      this.render();
     }
   }
   dispose(): void {
@@ -234,18 +239,24 @@ export class Studio {
     this.renderer.domElement.removeEventListener('pointerup', this.pointerUp);
     this.renderer.domElement.removeEventListener('webglcontextlost', this.contextLost);
     this.transform.dispose(); this.orbit.dispose(); this.composer?.dispose(); this.bokeh?.dispose();
-    disposeObject(this.scene); this.renderer.dispose(); this.renderer.domElement.remove();
+    disposeObject(this.scene, true); this.renderer.dispose(); this.renderer.domElement.remove();
   }
 }
 export function aspect(value: SceneState['camera']['aspect']): number { const [x, y] = value.split(':').map(Number); return x / y; }
-function disposeObject(root: T.Object3D): void {
-  const geometries = new Set<T.BufferGeometry>(), materials = new Set<T.Material>();
+function disposeObject(root: T.Object3D, releaseTextures = false): void {
+  const geometries = new Set<T.BufferGeometry>(), materials = new Set<T.Material>(), skeletons = new Set<T.Skeleton>();
   root.traverse(n => {
     if (n instanceof T.Mesh || n instanceof T.LineSegments) {
       geometries.add(n.geometry);
       (Array.isArray(n.material) ? n.material : [n.material]).forEach((m: T.Material) => materials.add(m));
     }
     if (n instanceof T.SpotLight) n.dispose();
+    if (n instanceof T.SkinnedMesh) skeletons.add(n.skeleton);
   });
-  geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose());
+  if (releaseTextures) {
+    const textures = new Set<T.Texture>();
+    materials.forEach(m => Object.values(m).forEach(value => { if (value instanceof T.Texture) textures.add(value); }));
+    textures.forEach(texture => texture.dispose());
+  }
+  geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); skeletons.forEach(s => s.dispose());
 }

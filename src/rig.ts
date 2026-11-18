@@ -2,7 +2,12 @@ import * as T from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { JOINTS, type Body, type Joint, type Pose } from './model';
 
-export interface Figure { root: T.Group; skin: T.SkinnedMesh; bones: Record<Joint, T.Bone> }
+export interface Figure {
+  root: T.Group; skin: T.SkinnedMesh; skins: T.SkinnedMesh[]; bones: Record<Joint, T.Bone>;
+  restRotations: Record<Joint, T.Quaternion>; rotationBases: Record<Joint, T.Quaternion>;
+  tintMaterials: T.MeshStandardMaterial[];
+}
+// Legacy regression fixture; the live studio exclusively loads the CC0 source rigs.
 export function makeFigure(body: Body, color: string): Figure {
   const female = body === 'female';
   const shoulder = female ? 0.195 : 0.25, hip = female ? 0.125 : 0.105;
@@ -112,12 +117,24 @@ export function makeFigure(body: Body, color: string): Figure {
     const eye = new T.Mesh(new T.SphereGeometry(0.011, 12, 8), new T.MeshStandardMaterial({ color: '#44403c', roughness: 0.9 }));
     eye.position.set(side * 0.042, 0.055, 0.094); eye.scale.set(1, 0.55, 0.35); bones.head.add(eye);
   }
-  return { root, skin, bones };
+  const identityMap = () => Object.fromEntries(JOINTS.map(j => [j, new T.Quaternion()])) as Record<Joint, T.Quaternion>;
+  return { root, skin, skins: [skin], bones, restRotations: identityMap(), rotationBases: identityMap(), tintMaterials: [material] };
 }
 export function setFigurePose(figure: Figure, pose: Pose): void {
-  JOINTS.forEach(j => figure.bones[j].rotation.set(...pose[j]));
+  JOINTS.forEach(j => {
+    const basis = figure.rotationBases[j];
+    const delta = new T.Quaternion().setFromEuler(new T.Euler(...pose[j]));
+    figure.bones[j].quaternion.copy(figure.restRotations[j]).multiply(basis).multiply(delta).multiply(basis.clone().invert());
+  });
   figure.root.updateMatrixWorld(true);
-  figure.skin.skeleton.update();
-  figure.skin.computeBoundingBox();
-  figure.skin.computeBoundingSphere();
+  figure.skins.forEach(skin => {
+    skin.skeleton.update(); skin.computeBoundingBox(); skin.computeBoundingSphere();
+  });
+}
+export function getJointRotation(figure: Figure, joint: Joint): [number, number, number] {
+  const basis = figure.rotationBases[joint];
+  const delta = figure.restRotations[joint].clone().invert().multiply(figure.bones[joint].quaternion);
+  const semantic = basis.clone().invert().multiply(delta).multiply(basis);
+  const euler = new T.Euler().setFromQuaternion(semantic, 'XYZ');
+  return [euler.x, euler.y, euler.z];
 }

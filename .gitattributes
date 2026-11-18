@@ -1,0 +1,4 @@
+* text=auto eol=lf
+# Publisher assets and verbatim notices retain their original bytes and whitespace.
+public/models/external/** -text -whitespace
+public/THIRD_PARTY_NOTICES.txt -text -whitespace
