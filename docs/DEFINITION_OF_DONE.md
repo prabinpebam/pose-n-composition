@@ -26,7 +26,7 @@ Unchecked items are not completion claims. Evidence is recorded after execution.
 |---|---|---|
 | Distinct figures | Legally redistributable ready-made male/female rigged bodies, verified sources/licenses, semantic-joint mapping; multiple coexist | PASS: Quaternius free Standard Superhero pair, exact included CC0; 65 bones / three skins each, 17 mapped controls; actual browser screenshots and source-rig tests |
 | Static posing | Select named joints, rotate FK, root W/E/R, presets, neutral reset, undo/redo | PASS: source-rig tests on both sexes; browser left elbow -110, opposite elbow 0; neutral/reach/seated/contrapposto and undo/redo; root carries eyes/eyebrows too |
-| Hair appearance | Visible scalp hair, brows and lashes on both source figures; independent per-figure hair color follows head; scene persistence, old-save compatibility and history | PASS locally: 40-test suite; close-up browser checks, both-sex duplicate/delete isolation, head turns, color undo/redo and scene save-refresh-load; live release check follows publication |
+| Hair appearance | Visible scalp hair, brows and lashes on both source figures; independent per-figure hair color follows head; scene persistence, old-save compatibility and history | PASS: 40-test suite; local and LIVE close-ups, both-sex duplicate/delete isolation, head turns, color undo/redo and scene save-refresh-load; live DOF PNG includes both hair colors |
 | Props | Lamp, table, chair, desk, couch, bed, windowed room; transforms and colors | PASS: four persisted prop tests (including nine window-opening rays and material isolation); all seven coexist in actual 10-object UI scene |
 | Lighting | Position, target, color and intensity change actual scene illumination | PASS: actual image mean RGB differences 12.40 / 73.94 / 42.43 / 73.94 respectively |
 | Camera | Independent position/aim/FOV/aspect, inspectable framed view, real toggleable depth of field | PASS: exact 50 mm projection test; camera-view UI; three-depth focus fixture and four-vs-one actual renderer calls |
@@ -36,7 +36,7 @@ Unchecked items are not completion claims. Evidence is recorded after execution.
 | Navigation | Orbit/pan/zoom, gizmos, shortcuts and discoverable help, usable narrow window | PASS: actual mouse gizmo drag changed root Y to 0.27976; orbit disabled during drag; Help workflow; 900 × 700 and 500 × 800 without horizontal overflow |
 | Quality | Strict build, focused model tests and browser workflow, no uncaught application errors | PASS: 40/40 tests in three files; strict TypeScript + Vite build; fresh browser source-asset load without application errors |
 | Privacy/license | No uploads/telemetry; licensed figures and original props; dependencies/license documented | PASS: original props, exact source CC0 + provenance/hashes, full deployed software notices; same-site static assets only |
-| Deployment | Public repository under authenticated personal login; actual Pages HTTPS URL responds and renders | PASS: public prabinpebam/pose-n-composition; sourced release 0dd2aba, Actions 44362640034 successful; actual live model loading and workflow verified |
+| Deployment | Public repository under authenticated personal login; actual Pages HTTPS URL responds and renders | PASS: public prabinpebam/pose-n-composition; hair implementation cb59744, Actions 44376686602 successful; actual live model loading and hair workflows verified |
 
 ## Evidence log (2026-11-18)
 
@@ -71,7 +71,7 @@ Unchecked items are not completion claims. Evidence is recorded after execution.
   hot-reload errors are not counted as clean-run errors. Fresh final loads and
   normal UI workflows are the relevant runtime evidence.
 
-## Final public release verification
+## Baseline public release verification
 
 - **App:** https://prabinpebam.github.io/pose-n-composition/
 - **Source:** https://github.com/prabinpebam/pose-n-composition
@@ -141,3 +141,23 @@ failures are hidden by that warning.
   the exact CC0 distribution license. No new dependencies, assets or downloads.
   Basic short hairstyles only: no hairstyle editing, separate lash/brow colors
   or hair simulation.
+
+### Public hair release verification
+
+- Implementation commit: `cb59744ecc24b3bf317a4c64d806af56feb58f23`.
+  [Pages workflow 44376686602](https://github.com/prabinpebam/pose-n-composition/actions/runs/44376686602)
+  passed installation, all 40 tests, strict production build and deployment.
+- Fresh actual live browser loaded **18 requests / 16 unique model URLs**, all
+  **HTTP 200** under the correct repository subpath; zero application errors.
+- Live color undo/redo restored default brown / gold respectively; the untouched
+  female remained brown until explicitly edited. Close-up screenshots show both
+  scalp hair and facial hair recolored, with the original body/eye materials separate.
+- Live named save -> refresh -> load restored male `#c48a38`, female `#653c90`,
+  separate female body `#e0b894`, head yaw +30 / -30 and roll -8 / +8 degrees.
+  Camera framing was restored and inspected after reload.
+- Actual live male and female duplicates were separately recolored and head-rotated
+  65 degrees, then deleted. Survivors retained their original colors and respective
+  +30 / -30 head angles; both rendered without errors.
+- Live DOF camera export encoded **1600 x 1067, 1,158,642-byte PNG**, matching the
+  local verified rendering. Only uniquely named test saves created for these checks
+  were removed; existing user records and preferences were not cleared.
