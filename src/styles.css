@@ -302,6 +302,43 @@ kbd {
   width: 32px;
   height: 32px;
 }
+.autosave-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 9px;
+  margin-right: 2px;
+  border-radius: 999px;
+  background: var(--cp-surface-soft);
+  border: 1px solid var(--cp-border);
+  color: var(--cp-text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  white-space: nowrap;
+}
+.autosave-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--cp-text-soft);
+  flex-shrink: 0;
+}
+.autosave-badge.saving .autosave-dot {
+  background: var(--cp-warning);
+}
+.autosave-badge.saved .autosave-dot {
+  background: var(--cp-success);
+}
+.autosave-badge.error {
+  border-color: color-mix(in srgb, var(--cp-danger) 48%, var(--cp-border));
+  color: var(--cp-danger);
+}
+.autosave-badge.error .autosave-dot {
+  background: var(--cp-danger);
+}
 
 .workspace {
   display: grid;
@@ -1156,7 +1193,7 @@ canvas {
 }
 @media (max-width: 860px) {
   .workspace { grid-template-columns: 180px minmax(180px, 1fr) 262px; }
-  .brand-copy small, .top-actions kbd, .viewport-toolbar kbd { display: none; }
+  .brand-copy small, .top-actions kbd, .viewport-toolbar kbd, .autosave-badge { display: none; }
   section { padding: 12px; }
 }
 @media (max-width: 680px) {

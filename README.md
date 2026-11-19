@@ -95,14 +95,24 @@ Do not run it in an owner's working tab.
 
 ## Persistence and portable files
 
-- **Save scene** stores all object transforms, joint-local rotations, colors,
-  props, lights, background and composition-camera settings in IndexedDB.
+- **Immediate IndexedDB working-draft autosave:** Every manual viewport edit
+  (joint rotation ring drag, root move/rotate/scale gizmo, object add/duplicate/delete,
+  editor orbit/pan/zoom viewpoint, active selection), preset/animation pose extraction,
+  Undo/Redo, and inspector change (hairstyle, hair/surface color, lighting, backdrop,
+  composition camera & DOF) is saved automatically to a dedicated internal record in
+  IndexedDB and restored seamlessly on browser reload.
+- **Reset:** Top-bar **Reset** returns the stage and editor orbit camera to the
+  default two-figure studio scene, updates the autosaved draft, and remains
+  one-step undoable (`Ctrl/Cmd Z`).
+- **Save scene** stores named snapshots of all object transforms, joint-local
+  rotations, colors, props, lights, background and composition-camera settings in
+  IndexedDB independently of the live working draft.
 - **Save pose** stores every semantic joint, body provenance and rig version;
   root placement is deliberately excluded. Both bodies share rig v1, so poses
   can be applied across them without retargeting.
-- Named saves appear under **Save / Load** after a browser refresh. The initial
-  stage is fresh on refresh; click a named save to restore it. Same type/name
-  overwrites that library entry. Clearing browser data deletes local saves.
+- Named saves appear under **Library** after a browser refresh without being
+  polluted by working-draft autosaves; click a named save to load it. Same
+  type/name overwrites that library entry. Clearing browser data deletes local saves.
 - Download JSON for durable backups. Import validates the complete file before
   changing anything. Scene import replaces the scene and is undoable.
 - Files use `schemaVersion: 1`, `rigVersion: 1`, `type: "scene" | "pose"`.

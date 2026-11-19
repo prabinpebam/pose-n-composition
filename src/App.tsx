@@ -49,7 +49,22 @@ import {
   type SceneState,
   type Vec3,
 } from './model';
-import { deleteLocal, download, downloadBlob, listSaved, saveLocal, type Saved } from './storage';
+import {
+  DEFAULT_ORBIT_VIEW,
+  deleteLocal,
+  download,
+  downloadBlob,
+  listSaved,
+  loadWorkingDraft,
+  sanitizeWorkingView,
+  saveLocal,
+  WorkingDraftAutoSaver,
+  type AutosaveStatus,
+  type OrbitViewState,
+  type Saved,
+  type WorkingDraft,
+  type WorkingViewState,
+} from './storage';
 
 const ANIM_CATEGORIES: readonly AnimationCycleCategory[] = [
   'Locomotion',
@@ -125,6 +140,7 @@ export function App() {
   const [loading, setLoading] = useState(true),
     [loadError, setLoadError] = useState<string | null>(null),
     [retry, setRetry] = useState(0);
+  const [autosaveStatus, setAutosaveStatus] = useState<AutosaveStatus>('idle');
   const [animClips, setAnimClips] = useState<Record<string, AnimationCycleClip>>({});
   const [userClipIds, setUserClipIds] = useState<string[]>([]);
   const [activeCycleId, setActiveCycleId] = useState('');
@@ -137,6 +153,8 @@ export function App() {
     engine = useRef<Studio | null>(null),
     file = useRef<HTMLInputElement>(null),
     animFile = useRef<HTMLInputElement>(null);
+  const orbitViewRef = useRef<OrbitViewState>(clone(DEFAULT_ORBIT_VIEW));
+  const saverRef = useRef<WorkingDraftAutoSaver | null>(null);
 
   const liveSettings = useRef({ selected, joint, view, mode, showJoints, showHelpers });
   liveSettings.current = { selected, joint, view, mode, showJoints, showHelpers };
@@ -149,14 +167,48 @@ export function App() {
 
   const notify = useCallback((text: string, error = false) => setNotice({ text, error }), []);
   const report = useCallback((e: unknown) => notify(e instanceof Error ? e.message : String(e), true), [notify]);
-  const commit = useCallback((next: SceneState) => {
-    past.current.push(clone(current.current));
-    if (past.current.length > 100) past.current.shift();
-    future.current = [];
-    current.current = next;
-    setDoc(next);
-    historyUpdate(t => t + 1);
-  }, []);
+
+  if (!saverRef.current) {
+    saverRef.current = new WorkingDraftAutoSaver({
+      throttleMs: 120,
+      onStatus: (status, err) => {
+        setAutosaveStatus(status);
+        if (status === 'error' && err) {
+          setNotice({ text: err instanceof Error ? err.message : String(err), error: true });
+        }
+      },
+    });
+  }
+
+  const buildDraft = useCallback(
+    (sceneOverride?: SceneState, viewPatch?: Partial<WorkingViewState>): WorkingDraft => {
+      const s = liveSettings.current;
+      return {
+        scene: sceneOverride ?? current.current,
+        view: {
+          editorCamera: viewPatch?.editorCamera ?? orbitViewRef.current,
+          selectedId: viewPatch && 'selectedId' in viewPatch ? viewPatch.selectedId : s.selected,
+          selectedJoint: viewPatch && 'selectedJoint' in viewPatch ? viewPatch.selectedJoint : s.joint,
+          cameraView: viewPatch?.cameraView ?? s.view,
+          transformMode: viewPatch?.transformMode ?? s.mode,
+        },
+      };
+    },
+    [],
+  );
+
+  const commit = useCallback(
+    (next: SceneState, viewPatch?: Partial<WorkingViewState>) => {
+      past.current.push(clone(current.current));
+      if (past.current.length > 100) past.current.shift();
+      future.current = [];
+      current.current = next;
+      setDoc(next);
+      historyUpdate(t => t + 1);
+      void saverRef.current?.saveNow(buildDraft(next, viewPatch));
+    },
+    [buildDraft],
+  );
   const update = (fn: (next: SceneState) => void) => {
     const next = clone(current.current);
     fn(next);
@@ -253,18 +305,54 @@ export function App() {
       if (i) Object.assign(i, patch);
     });
   const editCamera = (patch: Partial<SceneState['camera']>) => update(next => Object.assign(next.camera, patch));
-  const undo = useCallback((redo = false) => {
+  const undo = useCallback(
+    (redo = false) => {
+      setAnimPlaying(false);
+      setAnimPreviewing(false);
+      const from = redo ? future.current : past.current,
+        to = redo ? past.current : future.current;
+      const next = from.pop();
+      if (!next) return;
+      to.push(current.current);
+      current.current = next;
+      const curSelected = liveSettings.current.selected;
+      const resolvedSelected =
+        curSelected && next.items.some(i => i.id === curSelected) ? curSelected : (next.items[0]?.id ?? null);
+      const resolvedItem = resolvedSelected ? next.items.find(i => i.id === resolvedSelected) : undefined;
+      const resolvedJoint =
+        resolvedItem && isBody(resolvedItem.kind) ? liveSettings.current.joint : null;
+      if (resolvedSelected !== curSelected) setSelected(resolvedSelected);
+      if (resolvedJoint !== liveSettings.current.joint) setJoint(resolvedJoint);
+      setDoc(next);
+      historyUpdate(t => t + 1);
+      void saverRef.current?.saveNow(
+        buildDraft(next, { selectedId: resolvedSelected, selectedJoint: resolvedJoint }),
+      );
+    },
+    [buildDraft],
+  );
+
+  const resetStudio = useCallback(() => {
     setAnimPlaying(false);
     setAnimPreviewing(false);
-    const from = redo ? future.current : past.current,
-      to = redo ? past.current : future.current;
-    const next = from.pop();
-    if (!next) return;
-    to.push(current.current);
-    current.current = next;
-    setDoc(next);
-    historyUpdate(t => t + 1);
-  }, []);
+    const fresh = initialScene();
+    const nextSelected = fresh.items[0]?.id ?? null;
+    const resetOrbit = clone(DEFAULT_ORBIT_VIEW);
+    orbitViewRef.current = resetOrbit;
+    engine.current?.setOrbitView(resetOrbit.position, resetOrbit.target);
+    setSelected(nextSelected);
+    setJoint(null);
+    setView(false);
+    setMode('translate');
+    commit(fresh, {
+      editorCamera: resetOrbit,
+      selectedId: nextSelected,
+      selectedJoint: null,
+      cameraView: false,
+      transformMode: 'translate',
+    });
+    notify('Studio reset to default scene. Undo restores your previous work.');
+  }, [commit, notify]);
 
   const removeItemById = useCallback(
     (id: string) => {
@@ -272,36 +360,143 @@ export function App() {
       setAnimPreviewing(false);
       const next = clone(current.current);
       next.items = next.items.filter(i => i.id !== id);
-      commit(next);
+      const nextSelected = selected === id ? (next.items[0]?.id ?? null) : selected;
+      const nextJoint = selected === id ? null : joint;
       if (selected === id) {
-        setSelected(next.items[0]?.id ?? null);
+        setSelected(nextSelected);
         setJoint(null);
       }
+      commit(next, { selectedId: nextSelected, selectedJoint: nextJoint });
     },
-    [selected, commit],
+    [selected, joint, commit],
   );
 
   const removeSelected = useCallback(() => {
     if (selected) removeItemById(selected);
   }, [selected, removeItemById]);
 
+  const studioCallbacksRef = useRef({
+    change: (next: SceneState) => commit(next),
+    liveChange: (liveScene: SceneState) => {
+      saverRef.current?.schedule(buildDraft(liveScene));
+    },
+    orbitChange: (orbit: OrbitViewState, settled: boolean) => {
+      orbitViewRef.current = orbit;
+      if (settled) {
+        void saverRef.current?.saveNow(buildDraft(undefined, { editorCamera: orbit }));
+      } else {
+        saverRef.current?.schedule(buildDraft(undefined, { editorCamera: orbit }));
+      }
+    },
+    select,
+    error: report,
+  });
+  studioCallbacksRef.current = {
+    change: (next: SceneState) => commit(next),
+    liveChange: (liveScene: SceneState) => {
+      saverRef.current?.schedule(buildDraft(liveScene));
+    },
+    orbitChange: (orbit: OrbitViewState, settled: boolean) => {
+      orbitViewRef.current = orbit;
+      if (settled) {
+        void saverRef.current?.saveNow(buildDraft(undefined, { editorCamera: orbit }));
+      } else {
+        saverRef.current?.schedule(buildDraft(undefined, { editorCamera: orbit }));
+      }
+    },
+    select,
+    error: report,
+  };
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setLoadError(null);
-    loadExternalFigures()
-      .then(() => {
+
+    const draftPromise = saverRef.current?.isHydrated()
+      ? Promise.resolve(null)
+      : loadWorkingDraft().catch(err => {
+          report(err);
+          return null;
+        });
+
+    Promise.all([loadExternalFigures(), draftPromise])
+      .then(([, loaded]) => {
         if (cancelled) return;
-        const studio = new Studio(host.current!, { change: commit, select, error: report });
+
+        let bootScene = current.current;
+        let bootSelected = liveSettings.current.selected;
+        let bootJoint = liveSettings.current.joint;
+        let bootCameraView = liveSettings.current.view;
+        let bootMode = liveSettings.current.mode;
+        let bootOrbit = orbitViewRef.current;
+        let restoredFromStorage = false;
+
+        if (loaded && !saverRef.current?.isHydrated()) {
+          if (loaded.corrupted && loaded.warning) {
+            notify(loaded.warning, true);
+          }
+          if (loaded.draft) {
+            restoredFromStorage = true;
+            bootScene = loaded.draft.scene;
+            const v = sanitizeWorkingView(loaded.draft.view, bootScene);
+            bootSelected = v.selectedId ?? null;
+            bootJoint = v.selectedJoint ?? null;
+            bootCameraView = v.cameraView ?? false;
+            bootMode = v.transformMode ?? 'translate';
+            bootOrbit = v.editorCamera ? clone(v.editorCamera) : clone(DEFAULT_ORBIT_VIEW);
+
+            current.current = bootScene;
+            past.current = [];
+            future.current = [];
+            orbitViewRef.current = bootOrbit;
+            liveSettings.current = {
+              ...liveSettings.current,
+              selected: bootSelected,
+              joint: bootJoint,
+              view: bootCameraView,
+              mode: bootMode,
+            };
+            setDoc(bootScene);
+            setSelected(bootSelected);
+            setJoint(bootJoint);
+            setView(bootCameraView);
+            setMode(bootMode);
+          }
+        }
+
+        const studio = new Studio(host.current!, {
+          change: next => studioCallbacksRef.current.change(next),
+          liveChange: live => studioCallbacksRef.current.liveChange(live),
+          orbitChange: (orbit, settled) => studioCallbacksRef.current.orbitChange(orbit, settled),
+          select: (id, j) => studioCallbacksRef.current.select(id, j),
+          error: err => studioCallbacksRef.current.error(err),
+        });
         engine.current = studio;
         (host.current as (HTMLDivElement & { __studio?: Studio }) | null)!.__studio = studio;
         try {
           const s = liveSettings.current;
-          studio.sync(current.current);
-          studio.select(s.selected, s.joint);
-          studio.setMode(s.mode);
+          studio.sync(bootScene);
+          studio.setOrbitView(bootOrbit.position, bootOrbit.target);
+          studio.setMode(bootMode);
           studio.setHelpers(s.showJoints, s.showHelpers);
-          studio.setView(s.view);
+          studio.setView(bootCameraView);
+          studio.select(bootSelected, bootJoint);
+          if (!saverRef.current?.isHydrated()) {
+            saverRef.current?.markHydrated(
+              {
+                scene: bootScene,
+                view: {
+                  editorCamera: bootOrbit,
+                  selectedId: bootSelected,
+                  selectedJoint: bootJoint,
+                  cameraView: bootCameraView,
+                  transformMode: bootMode,
+                },
+              },
+              restoredFromStorage,
+            );
+          }
           setLoading(false);
         } catch (error) {
           engine.current = null;
@@ -319,7 +514,45 @@ export function App() {
       engine.current?.dispose();
       engine.current = null;
     };
-  }, [commit, select, report, retry]);
+  }, [notify, report, retry]);
+
+  useEffect(() => {
+    if (!saverRef.current?.isHydrated()) return;
+    void saverRef.current.saveNow(
+      buildDraft(doc, {
+        selectedId: selected,
+        selectedJoint: joint,
+        cameraView: view,
+        transformMode: mode,
+      }),
+    );
+  }, [doc, selected, joint, view, mode, buildDraft]);
+
+  useEffect(() => {
+    const flushNow = (commitActiveInput: boolean) => {
+      const saver = saverRef.current;
+      if (!saver?.isHydrated()) return;
+      if (commitActiveInput && document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'number') {
+        document.activeElement.blur();
+      }
+      const liveScene = engine.current?.readLiveState() ?? current.current;
+      const liveOrbit = engine.current?.getOrbitView() ?? orbitViewRef.current;
+      orbitViewRef.current = liveOrbit;
+      void saver.saveNow(buildDraft(liveScene, { editorCamera: liveOrbit }));
+    };
+    const onPageHide = () => flushNow(true);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushNow(false);
+    };
+    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('beforeunload', onPageHide);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('beforeunload', onPageHide);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [buildDraft]);
 
   useEffect(() => {
     engine.current?.sync(doc);
@@ -510,12 +743,12 @@ export function App() {
       report(new Error('Scene limit: 8 lights.'));
       return;
     }
-    const next = createItem(kind, doc.items.filter(i => i.kind === kind).length);
-    update(d => {
-      d.items.push(next);
-    });
-    select(next.id, null);
+    const added = createItem(kind, doc.items.filter(i => i.kind === kind).length);
+    const next = clone(current.current);
+    next.items.push(added);
+    select(added.id, null);
     setView(false);
+    commit(next, { selectedId: added.id, selectedJoint: null, cameraView: false });
   };
 
   const applyPresetPose = (presetName: (typeof PRESETS)[number]) => {
@@ -525,8 +758,14 @@ export function App() {
     const nextPose = preset(presetName);
     const groundedY = engine.current?.groundPoseY(item.id, nextPose);
     const nextPosition: Vec3 = [item.position[0], groundedY ?? item.position[1], item.position[2]];
-    editItem({ pose: nextPose, position: nextPosition });
+    const next = clone(current.current);
+    const dst = next.items.find(i => i.id === item.id);
+    if (dst) {
+      dst.pose = nextPose;
+      dst.position = nextPosition;
+    }
     setJoint(null);
+    commit(next, { selectedJoint: null });
   };
 
   const loadPortable = (data: Portable) => {
@@ -534,9 +773,10 @@ export function App() {
     setAnimPreviewing(false);
     const valid = validatePortable(data);
     if (valid.type === 'scene') {
-      commit(valid);
-      setSelected(valid.items[0]?.id ?? null);
+      const nextSelected = valid.items[0]?.id ?? null;
+      setSelected(nextSelected);
       setJoint(null);
+      commit(valid, { selectedId: nextSelected, selectedJoint: null });
       notify('Scene loaded. Undo returns to the previous scene.');
     } else {
       if (!item || !isBody(item.kind)) throw new Error('Select a figure before loading a pose.');
@@ -664,11 +904,36 @@ export function App() {
           </span>
         </a>
         <div className="top-actions">
+          <span
+            className={`autosave-badge ${autosaveStatus}`}
+            role="status"
+            aria-live="polite"
+            title="All viewport and inspector edits are saved automatically to IndexedDB on this browser"
+          >
+            <span className="autosave-dot" aria-hidden="true" />
+            <span>
+              {autosaveStatus === 'saving'
+                ? 'Saving…'
+                : autosaveStatus === 'saved'
+                  ? 'Saved'
+                  : autosaveStatus === 'error'
+                    ? 'Save error'
+                    : 'Autosave'}
+            </span>
+          </span>
           <button type="button" onClick={() => undo()} disabled={!past.current.length} title="Undo · Ctrl Z">
             Undo
           </button>
           <button type="button" onClick={() => undo(true)} disabled={!future.current.length} title="Redo · Ctrl Shift Z">
             Redo
+          </button>
+          <button
+            type="button"
+            onClick={resetStudio}
+            disabled={loading || loadError !== null}
+            title="Reset to default studio scene (Undoable)"
+          >
+            Reset
           </button>
           <button type="button" onClick={() => setTab('library')}>
             Library
@@ -758,8 +1023,8 @@ export function App() {
             </section>
 
             <section className="hint">
-              <strong>Private by default</strong>
-              <p>Everything runs locally in your browser. Save studies to IndexedDB or export portable JSON files.</p>
+              <strong>Autosaved locally</strong>
+              <p>Viewport and inspector edits are immediately saved to IndexedDB and restored on reload. Use Library for named studies or JSON backups.</p>
             </section>
           </div>
         </aside>
@@ -1489,8 +1754,9 @@ export function App() {
               </p>
               <h3>03 / Keep your work</h3>
               <p>
-                Library stores named scenes and poses locally in IndexedDB, or exports portable v1 JSON files. Both body
-                types share the semantic rig so presets and animation-extracted poses transfer cleanly across figures.
+                Every viewport drag, camera move, and inspector edit autosaves immediately to IndexedDB and reloads
+                automatically — use <strong>Reset</strong> anytime to return to a fresh stage (with Undo). Library
+                stores named scenes and poses separately, or exports portable v1 JSON files.
               </p>
               <dl className="shortcuts">
                 <dt>Left drag / Right drag / Wheel</dt>

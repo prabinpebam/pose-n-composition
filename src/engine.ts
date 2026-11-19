@@ -13,7 +13,11 @@ import { clone, DEFAULT_HAIR_COLOR, isBody, JOINTS, validatePortable, type Item,
 
 interface Entry { kind: Item['kind']; root: T.Group; figure?: Figure; light?: T.SpotLight; target?: T.Object3D; markers?: T.Mesh<T.SphereGeometry, T.MeshBasicMaterial>[] }
 export interface EngineOptions {
-  change: (state: SceneState) => void; select: (id: string | null, joint: Joint | null) => void; error: (error: unknown) => void;
+  change: (state: SceneState) => void;
+  liveChange?: (state: SceneState) => void;
+  orbitChange?: (orbit: { position: Vec3; target: Vec3 }, settled: boolean) => void;
+  select: (id: string | null, joint: Joint | null) => void;
+  error: (error: unknown) => void;
 }
 export class Studio {
   readonly renderer: T.WebGLRenderer;
@@ -38,6 +42,8 @@ export class Studio {
   private nodePointer: number | null = null;
   private hoveredMarker: T.Mesh<T.SphereGeometry, T.MeshBasicMaterial> | null = null;
   private transformChanged = false;
+  private suppressOrbitEmit = false;
+  private lastOrbit: [number, number, number, number, number, number] = [3.2, 2.4, 5.2, 0, 0.95, 0];
   private alive = true;
   private width = 1;
   private height = 1;
@@ -57,6 +63,10 @@ export class Studio {
     this.editorCamera.position.set(3.2, 2.4, 5.2);
     this.orbit = new OrbitControls(this.editorCamera, this.renderer.domElement);
     this.orbit.target.set(0, 0.95, 0); this.orbit.enableDamping = true; this.orbit.minDistance = 0.3; this.orbit.maxDistance = 80;
+    this.orbit.update();
+    this.recordOrbit();
+    this.orbit.addEventListener('change', this.handleOrbitChange);
+    this.orbit.addEventListener('end', this.handleOrbitEnd);
     this.transform = new TransformControls(this.editorCamera, this.renderer.domElement);
     this.transform.setSize(0.85);
     this.scene.add(this.transform.getHelper());
@@ -64,9 +74,16 @@ export class Studio {
       this.orbit.enabled = !e.value && !this.cameraView;
       if (e.value) { this.recentlyDragged = true; this.transformChanged = false; }
     });
-    this.transform.addEventListener('objectChange', () => { this.transformChanged = true; });
+    this.transform.addEventListener('objectChange', () => {
+      this.transformChanged = true;
+      const live = this.readLiveState();
+      if (live) this.options.liveChange?.(live);
+    });
     this.transform.addEventListener('mouseUp', () => {
-      if (this.transformChanged) this.commitTransforms();
+      if (this.transformChanged) {
+        this.transformChanged = false;
+        this.commitTransforms();
+      }
       setTimeout(() => { this.recentlyDragged = false; }, 0);
     });
     this.scene.add(new T.HemisphereLight('#d8e5ff', '#615448', 1.6));
@@ -125,7 +142,30 @@ export class Studio {
   private pointerCancel = () => {
     this.nodePointer = null;
     if (this.transform.dragging) this.transform.pointerUp(null);
+    if (this.transformChanged) {
+      this.transformChanged = false;
+      this.commitTransforms();
+    }
     this.pointerLeave();
+  };
+  private recordOrbit(): void {
+    const p = this.editorCamera.position, t = this.orbit.target;
+    this.lastOrbit = [p.x, p.y, p.z, t.x, t.y, t.z];
+  }
+  private emitOrbit(settled: boolean): void {
+    if (this.suppressOrbitEmit) return;
+    const p = this.editorCamera.position, t = this.orbit.target;
+    const next: [number, number, number, number, number, number] = [p.x, p.y, p.z, t.x, t.y, t.z];
+    const moved = next.some((v, idx) => Math.abs(v - this.lastOrbit[idx]!) > 1e-4);
+    if (!moved && !settled) return;
+    this.lastOrbit = next;
+    this.options.orbitChange?.(this.getOrbitView(), settled);
+  }
+  private handleOrbitChange = () => {
+    this.emitOrbit(false);
+  };
+  private handleOrbitEnd = () => {
+    this.emitOrbit(true);
   };
   private updateMarkerColors(): void {
     for (const entry of this.entries.values()) entry.markers?.forEach(m => {
@@ -220,15 +260,47 @@ export class Studio {
   }
   setHelpers(joints: boolean, helpers: boolean): void { this.jointsVisible = joints; this.helpers = helpers; this.select(this.selected, this.joint); }
   setOrbitView(position: Vec3, target: Vec3): void {
-    this.orbit.target.fromArray(target);
-    this.editorCamera.position.fromArray(position);
-    this.orbit.update();
+    this.suppressOrbitEmit = true;
+    try {
+      this.orbit.target.fromArray(target);
+      this.editorCamera.position.fromArray(position);
+      this.orbit.update();
+      this.recordOrbit();
+    } finally {
+      this.suppressOrbitEmit = false;
+    }
+  }
+  getOrbitView(): { position: Vec3; target: Vec3 } {
+    return { position: this.editorCamera.position.toArray() as Vec3, target: this.orbit.target.toArray() as Vec3 };
   }
   focusSelected(): void {
     const e = this.selected ? this.entries.get(this.selected) : null;
     const center = e ? new T.Box3().setFromObject(e.root).getCenter(new T.Vector3()) : new T.Vector3(0, 1, 0);
     const delta = this.editorCamera.position.clone().sub(this.orbit.target).normalize().multiplyScalar(3.6);
     this.orbit.target.copy(center); this.editorCamera.position.copy(center).add(delta);
+    this.orbit.update();
+    this.emitOrbit(true);
+  }
+  readLiveState(): SceneState | null {
+    if (!this.state) return null;
+    if (!this.selected || !this.transformChanged) return clone(this.state);
+    const next = clone(this.state);
+    const entry = this.entries.get(this.selected);
+    const item = next.items.find(i => i.id === this.selected);
+    if (!entry || !item) return clone(this.state);
+    if (this.joint && entry.figure && item.pose) {
+      item.pose[this.joint] = getJointRotation(entry.figure, this.joint);
+    } else {
+      item.position = entry.root.position.toArray() as Vec3;
+      item.rotation = entry.root.rotation.toArray().slice(0, 3) as Vec3;
+      item.scale = entry.root.scale.toArray() as Vec3;
+    }
+    try {
+      const validated = validatePortable(next);
+      return validated.type === 'scene' ? validated : clone(this.state);
+    } catch {
+      return clone(this.state);
+    }
   }
   useEditorCamera(): Pick<SceneState['camera'], 'position' | 'target'> {
     return { position: this.editorCamera.position.toArray() as Vec3, target: this.orbit.target.toArray() as Vec3 };
@@ -341,6 +413,8 @@ export class Studio {
     this.renderer.domElement.removeEventListener('pointercancel', this.pointerCancel);
     this.renderer.domElement.removeEventListener('pointerup', this.pointerUp);
     this.renderer.domElement.removeEventListener('webglcontextlost', this.contextLost);
+    this.orbit.removeEventListener('change', this.handleOrbitChange);
+    this.orbit.removeEventListener('end', this.handleOrbitEnd);
     this.transform.dispose(); this.orbit.dispose(); this.composer?.dispose(); this.bokeh?.dispose();
     disposeObject(this.scene, true); this.renderer.dispose(); this.renderer.domElement.remove();
   }
