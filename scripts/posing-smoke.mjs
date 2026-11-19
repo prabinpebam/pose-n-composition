@@ -61,7 +61,7 @@ export async function runPosingSmoke(page, {
           if (Math.hypot(p.x - node.x, p.y - node.y) < 24) continue;
           if (p.x < rect.left + 20 || p.x > rect.right - 20 || p.y < rect.top + 20 || p.y > rect.bottom - 20) continue;
           if (entry.markers.some(m => { const q = project(m.getWorldPosition(m.position.clone())); return Math.hypot(q.x - p.x, q.y - p.y) < 14; })) continue;
-          const ray = new (s.transform.getRaycaster().constructor)(); ray.setFromCamera(ndc, s.editorCamera);
+          const ray = new (s.transform.getRaycaster().constructor)(); ray.layers.enable(1); ray.setFromCamera(ndc, s.editorCamera);
           const hit = ray.intersectObjects(gizmo.picker.rotate.children, true).find(h => h.object.visible);
           if (hit?.object.name === axis) { ring = { ...p, axis }; break; }
         }

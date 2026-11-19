@@ -9,7 +9,8 @@ import { getJointRotation, setFigurePose, type Figure } from './rig';
 import { makeExternalFigure, setFigureColors, setFigureHairStyle } from './external-rig';
 import { makeProp } from './props';
 import { pickJointMarker, sizeJointMarker } from './joint-markers';
-import { clone, DEFAULT_HAIR_COLOR, defaultOutfitColor, isBody, JOINTS, validatePortable, type Item, type Joint, type Pose, type SceneState, type Vec3 } from './model';
+import { HELPER_LAYER, STAGE_LAYER, NprInkPass, StudioShadingController, needsInk, paperColor, setLayerRecursive } from './npr';
+import { clone, DEFAULT_HAIR_COLOR, DEFAULT_RENDER_STYLE, defaultOutfitColor, isBody, JOINTS, selectionCentroid, transformItems, validatePortable, type Item, type Joint, type Pose, type SceneState, type Vec3 } from './model';
 
 interface Entry { kind: Item['kind']; root: T.Group; figure?: Figure; light?: T.SpotLight; target?: T.Object3D; markers?: T.Mesh<T.SphereGeometry, T.MeshBasicMaterial>[] }
 export interface EngineOptions {
@@ -17,7 +18,8 @@ export interface EngineOptions {
   liveChange?: (state: SceneState) => void;
   orbitChange?: (orbit: { position: Vec3; target: Vec3 }, settled: boolean) => void;
   cameraChange?: (cameraPose: { position: Vec3; target: Vec3 }, settled: boolean) => void;
-  select: (id: string | null, joint: Joint | null) => void;
+  select: (id: string | null, joint: Joint | null, additive?: boolean) => void;
+  selectMany?: (ids: string[]) => void;
   error: (error: unknown) => void;
 }
 export class Studio {
@@ -30,9 +32,18 @@ export class Studio {
   readonly transform: TransformControls;
   readonly entries = new Map<string, Entry>();
   private readonly grid: T.GridHelper;
+  private readonly fill: T.DirectionalLight;
   private readonly resizeObserver: ResizeObserver;
   private composer: EffectComposer | null = null;
   private bokeh: BokehPass | null = null;
+  private renderPass: RenderPass | null = null;
+  private inkPass: NprInkPass | null = null;
+  private shading = new StudioShadingController();
+  private helperDepth = new T.MeshDepthMaterial({ colorWrite: false });
+  private selectedIds: string[] = [];
+  readonly groupPivot = new T.Object3D();
+  private groupBase: { items: Item[]; inverse: T.Matrix4 } | null = null;
+  private marquee: { pointer: number; x: number; y: number; additive: boolean; element: HTMLDivElement } | null = null;
   private state: SceneState | null = null;
   private selected: string | null = null;
   private joint: Joint | null = null;
@@ -59,7 +70,7 @@ export class Studio {
   private options: EngineOptions;
   constructor(host: HTMLDivElement, options: EngineOptions) {
     this.host = host; this.options = options;
-    this.renderer = new T.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    this.renderer = new T.WebGLRenderer({ antialias: true, alpha: true, premultipliedAlpha: false, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = T.PCFSoftShadowMap;
@@ -68,6 +79,7 @@ export class Studio {
     this.renderer.domElement.setAttribute('aria-label', 'Interactive 3D posing viewport');
     this.host.appendChild(this.renderer.domElement);
     this.editorCamera.position.set(3.2, 2.4, 5.2);
+    this.editorCamera.layers.enable(HELPER_LAYER);
     this.orbit = new OrbitControls(this.editorCamera, this.renderer.domElement);
     this.orbit.target.set(0, 0.95, 0); this.orbit.enableDamping = true; this.orbit.minDistance = 0.3; this.orbit.maxDistance = 80;
     this.orbit.update();
@@ -87,29 +99,52 @@ export class Studio {
     this.cameraOrbit.addEventListener('end', this.handleCameraOrbitEnd);
     this.transform = new TransformControls(this.editorCamera, this.renderer.domElement);
     this.transform.setSize(0.85);
+    this.scene.add(this.groupPivot);
+    setLayerRecursive(this.transform.getHelper(), HELPER_LAYER);
+    this.transform.getRaycaster().layers.enable(HELPER_LAYER);
     this.scene.add(this.transform.getHelper());
+    this.transform.addEventListener('mouseDown', () => {
+      if (this.selectedIds.length < 2 || !this.state) return;
+      this.groupPivot.updateMatrix();
+      this.groupBase = { items: clone(this.state.items), inverse: this.groupPivot.matrix.clone().invert() };
+    });
     this.transform.addEventListener('dragging-changed', e => {
       this.orbit.enabled = !e.value && !this.cameraView;
       this.cameraOrbit.enabled = !e.value && this.cameraView;
       if (e.value) { this.recentlyDragged = true; this.transformChanged = false; }
     });
     this.transform.addEventListener('objectChange', () => {
+      if (this.groupBase) {
+        this.groupPivot.updateMatrix();
+        const delta = this.groupPivot.matrix.clone().multiply(this.groupBase.inverse);
+        for (const item of transformItems(this.groupBase.items, this.selectedIds, delta)) {
+          if (!this.selectedIds.includes(item.id)) continue;
+          const entry = this.entries.get(item.id);
+          if (!entry) continue;
+          entry.root.position.fromArray(item.position); entry.root.rotation.set(...item.rotation); entry.root.scale.fromArray(item.scale);
+          if (entry.target && item.target) entry.target.position.fromArray(item.target);
+        }
+      }
       this.transformChanged = true;
       const live = this.readLiveState();
       if (live) this.options.liveChange?.(live);
     });
     this.transform.addEventListener('mouseUp', () => {
       if (this.transformChanged) {
-        this.transformChanged = false;
         this.commitTransforms();
+        this.transformChanged = false;
       }
+      this.groupBase = null;
       setTimeout(() => { this.recentlyDragged = false; }, 0);
     });
     this.scene.add(new T.HemisphereLight('#d8e5ff', '#615448', 1.6));
-    const fill = new T.DirectionalLight('#ffffff', 1.1); fill.position.set(-4, 4, -2); this.scene.add(fill);
+    this.fill = new T.DirectionalLight('#ffffff', 1.1); this.fill.position.set(-4, 4, -2); this.scene.add(this.fill);
     const floor = new T.Mesh(new T.PlaneGeometry(200, 200), new T.MeshStandardMaterial({ color: '#55514a', roughness: 0.96 }));
+    floor.userData.nprFloor = true;
+    this.shading.attachStudioShading(floor.material);
     floor.rotation.x = -Math.PI / 2; floor.position.y = -0.005; floor.receiveShadow = true; this.scene.add(floor);
     this.grid = new T.GridHelper(20, 40, '#7b7771', '#62605b'); this.grid.position.y = -0.003; this.scene.add(this.grid);
+    setLayerRecursive(this.grid, HELPER_LAYER);
     this.renderer.domElement.addEventListener('pointerdown', this.pointerDown, true);
     this.renderer.domElement.addEventListener('touchstart', this.cameraTouchStart, { capture: true, passive: true });
     this.renderer.domElement.addEventListener('pointerup', this.nodePointerUp, true);
@@ -136,12 +171,21 @@ export class Studio {
   };
   private pointerDown = (event: PointerEvent) => {
     this.pointerStart.set(event.clientX, event.clientY);
+    if (event.button === 0 && (event.ctrlKey || event.metaKey) && !this.transform.dragging) {
+      event.stopImmediatePropagation();
+      const element = document.createElement('div'); element.className = 'selection-marquee';
+      this.host.appendChild(element);
+      this.marquee = { pointer: event.pointerId, x: event.clientX, y: event.clientY, additive: event.shiftKey, element };
+      this.orbit.enabled = false; this.cameraOrbit.enabled = false;
+      this.renderer.domElement.setPointerCapture(event.pointerId);
+      return;
+    }
     if (this.cameraView && !this.transform.dragging) {
       this.cameraPointerDown = true;
       return;
     }
     if (event.button !== 0 || this.transform.dragging) return;
-    const marker = this.markerAt(event);
+    const marker = event.shiftKey || this.selectedIds.length > 1 ? null : this.markerAt(event);
     if (!marker) return;
     // Visible overlay nodes own the click, even where skin or a gizmo lies in front.
     event.stopImmediatePropagation();
@@ -151,12 +195,25 @@ export class Studio {
     this.options.select(this.selected, marker.userData.joint);
   };
   private nodePointerUp = (event: PointerEvent) => {
+    if (this.marquee?.pointer === event.pointerId) {
+      event.stopImmediatePropagation();
+      this.finishMarquee(event);
+      return;
+    }
     if (event.pointerId !== this.nodePointer) return;
     event.stopImmediatePropagation();
     this.nodePointer = null;
     this.renderer.domElement.releasePointerCapture(event.pointerId);
   };
   private pointerMove = (event: PointerEvent) => {
+    if (this.marquee) {
+      const rect = this.host.getBoundingClientRect(), m = this.marquee;
+      Object.assign(m.element.style, {
+        left: `${Math.min(m.x, event.clientX) - rect.left}px`, top: `${Math.min(m.y, event.clientY) - rect.top}px`,
+        width: `${Math.abs(m.x - event.clientX)}px`, height: `${Math.abs(m.y - event.clientY)}px`,
+      });
+      return;
+    }
     if (this.transform.dragging || this.nodePointer !== null) return;
     this.hoveredMarker = this.markerAt(event);
     this.updateMarkerColors();
@@ -168,15 +225,47 @@ export class Studio {
     this.renderer.domElement.style.cursor = ''; this.renderer.domElement.title = '';
   };
   private pointerCancel = () => {
+    this.cancelMarquee();
     this.nodePointer = null;
     this.flushCameraGesture();
     if (this.transform.dragging) this.transform.pointerUp(null);
     if (this.transformChanged) {
-      this.transformChanged = false;
       this.commitTransforms();
+      this.transformChanged = false;
     }
     this.pointerLeave();
   };
+  private cancelMarquee(): void {
+    if (!this.marquee) return;
+    const { pointer, element } = this.marquee;
+    element.remove(); this.marquee = null;
+    if (this.renderer.domElement.hasPointerCapture(pointer)) this.renderer.domElement.releasePointerCapture(pointer);
+    this.orbit.enabled = !this.cameraView; this.cameraOrbit.enabled = this.cameraView;
+  }
+  private finishMarquee(event: PointerEvent): void {
+    const m = this.marquee;
+    if (!m) return;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const left = Math.min(m.x, event.clientX), right = Math.max(m.x, event.clientX);
+    const top = Math.min(m.y, event.clientY), bottom = Math.max(m.y, event.clientY);
+    const camera = this.cameraView ? this.camera : this.editorCamera;
+    camera.updateMatrixWorld(true);
+    const ids = m.additive ? [...this.selectedIds] : [];
+    for (const [id, entry] of this.entries) {
+      entry.root.updateMatrixWorld(true);
+      const box = new T.Box3().setFromObject(entry.root);
+      const points: T.Vector3[] = [entry.root.getWorldPosition(new T.Vector3())];
+      if (!box.isEmpty()) for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) points.push(new T.Vector3(x, y, z));
+      entry.markers?.forEach(marker => points.push(marker.getWorldPosition(new T.Vector3())));
+      const projected = points.map(p => p.project(camera)).filter(p => p.z >= -1 && p.z <= 1);
+      if (!projected.length) continue;
+      const xs = projected.map(p => rect.left + (p.x + 1) * rect.width / 2);
+      const ys = projected.map(p => rect.top + (1 - p.y) * rect.height / 2);
+      if (Math.max(...xs) >= left && Math.min(...xs) <= right && Math.max(...ys) >= top && Math.min(...ys) <= bottom && !ids.includes(id)) ids.push(id);
+    }
+    this.cancelMarquee();
+    this.options.selectMany?.(ids);
+  }
   private recordOrbit(): void {
     const p = this.editorCamera.position, t = this.orbit.target;
     this.lastOrbit = [p.x, p.y, p.z, t.x, t.y, t.z];
@@ -280,17 +369,17 @@ export class Studio {
     });
   }
   private pointerUp = (event: PointerEvent) => {
-    if (this.cameraView || this.recentlyDragged || this.transform.dragging || this.transform.axis || this.pointerStart.distanceTo(new T.Vector2(event.clientX, event.clientY)) > 4) return;
+    if (this.recentlyDragged || this.transform.dragging || (!event.shiftKey && this.transform.axis) || this.pointerStart.distanceTo(new T.Vector2(event.clientX, event.clientY)) > 4) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
     const pointer = new T.Vector2((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
-    const ray = new T.Raycaster(); ray.setFromCamera(pointer, this.editorCamera);
+    const ray = new T.Raycaster(); ray.layers.enable(HELPER_LAYER); ray.setFromCamera(pointer, this.cameraView ? this.camera : this.editorCamera);
     const targets = [...this.entries.values()].flatMap(e => [e.root]);
     const hit = ray.intersectObjects(targets, true).find(h => h.object.visible && !h.object.userData.ignorePick && !h.object.userData.joint);
-    if (!hit) { this.options.select(null, null); return; }
+    if (!hit) { if (!event.shiftKey) this.options.select(null, null); return; }
     let node: T.Object3D | null = hit.object;
     const joint: Joint | null = hit.object.userData.joint ?? null;
     while (node && !node.userData.itemId) node = node.parent;
-    if (node) this.options.select(node.userData.itemId, joint);
+    if (node) this.options.select(node.userData.itemId, joint, event.shiftKey);
   };
   sync(state: SceneState): void {
     this.state = clone(state);
@@ -306,13 +395,14 @@ export class Studio {
           const figure = makeExternalFigure(item.kind, item.color, item.outfitColor ?? defaultOutfitColor(item.kind));
           const markers = JOINTS.map(j => {
             const m = new T.Mesh(new T.SphereGeometry(0.022, 16, 12), new T.MeshBasicMaterial({ color: '#ffd07d', depthTest: false, depthWrite: false }));
-            m.renderOrder = 20; m.userData.joint = j; figure.bones[j].add(m); return m;
+            m.renderOrder = 20; m.userData.joint = j; m.layers.set(HELPER_LAYER); figure.bones[j].add(m); return m;
           });
           entry = { kind: item.kind, root: figure.root, figure, markers };
         } else if (item.kind === 'light') {
           const root = new T.Group();
           const bulb = new T.Mesh(new T.SphereGeometry(0.07, 16, 12), new T.MeshBasicMaterial({ color: item.color }));
           root.add(bulb);
+          bulb.layers.set(HELPER_LAYER);
           const light = new T.SpotLight(item.color, item.intensity, 70, Math.PI / 3, 0.65, 1.3);
           light.castShadow = true; light.shadow.mapSize.set(1024, 1024); light.shadow.bias = -0.0003;
           root.add(light);
@@ -339,6 +429,12 @@ export class Studio {
         entry.light.color.set(item.color); entry.light.intensity = item.intensity ?? 30; entry.target!.position.fromArray(item.target ?? [0, 1, 0]);
         const bulb = entry.root.children[0] as T.Mesh<T.SphereGeometry, T.MeshBasicMaterial>; bulb.material.color.set(item.color);
       }
+      entry.root.traverse(node => {
+        if (!(node instanceof T.Mesh)) return;
+        for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
+          if (material instanceof T.MeshStandardMaterial) this.shading.attachStudioShading(material);
+        }
+      });
     }
     this.scene.background = new T.Color(state.background);
     const c = state.camera;
@@ -370,15 +466,25 @@ export class Studio {
     this.select(this.selected, this.joint);
     this.resize();
   }
-  select(id: string | null, joint: Joint | null): void {
+  select(id: string | null, joint: Joint | null, ids?: string[]): void {
+    this.selectedIds = (ids ?? (id === this.selected ? this.selectedIds : id ? [id] : [])).filter(key => this.entries.has(key));
+    if (id && !this.selectedIds.includes(id)) this.selectedIds.push(id);
+    if (this.selectedIds.length > 1) joint = null;
     this.selected = id; this.joint = joint;
     for (const [key, e] of this.entries) e.markers?.forEach(m => {
-      m.visible = key === id && this.jointsVisible && !this.cameraView;
+      m.visible = key === id && this.selectedIds.length < 2 && this.jointsVisible && !this.cameraView;
     });
     this.updateMarkerColors();
     this.transform.detach();
     this.transform.axis = null;
     const e = id ? this.entries.get(id) : null;
+    if (this.selectedIds.length >= 2 && !this.cameraView && this.state) {
+      this.groupPivot.position.fromArray(selectionCentroid(this.state.items.filter(i => this.selectedIds.includes(i.id))));
+      this.groupPivot.rotation.set(0, 0, 0); this.groupPivot.scale.set(1, 1, 1);
+      this.transform.setMode(this.mode === 'scale' ? 'translate' : this.mode);
+      this.transform.setSpace('world'); this.transform.attach(this.groupPivot);
+      return;
+    }
     if (e && !this.cameraView) {
       this.transform.setMode(joint ? 'rotate' : this.mode);
       this.transform.setSpace(joint ? 'local' : 'world');
@@ -443,6 +549,18 @@ export class Studio {
     if (!this.state) return null;
     if (!this.selected || !this.transformChanged) return clone(this.state);
     const next = clone(this.state);
+    if (this.selectedIds.length > 1) {
+      for (const item of next.items) {
+        if (!this.selectedIds.includes(item.id)) continue;
+        const entry = this.entries.get(item.id);
+        if (!entry) continue;
+        item.position = entry.root.position.toArray() as Vec3;
+        item.rotation = entry.root.rotation.toArray().slice(0, 3) as Vec3;
+        item.scale = entry.root.scale.toArray() as Vec3;
+        if (entry.target) item.target = entry.target.position.toArray() as Vec3;
+      }
+      return next;
+    }
     const entry = this.entries.get(this.selected);
     const item = next.items.find(i => i.id === this.selected);
     if (!entry || !item) return clone(this.state);
@@ -509,8 +627,13 @@ export class Studio {
   }
   private commitTransforms(): void {
     if (!this.state || !this.selected) return;
-    const next = clone(this.state), entry = this.entries.get(this.selected), item = next.items.find(i => i.id === this.selected);
+    const next = this.readLiveState()!, entry = this.entries.get(this.selected), item = next.items.find(i => i.id === this.selected);
     if (!entry || !item) return;
+    if (this.selectedIds.length > 1) {
+      try { validatePortable(next); this.options.change(next); }
+      catch (error) { this.options.error(error); this.sync(this.state); }
+      return;
+    }
     if (this.joint && entry.figure && item.pose) item.pose[this.joint] = getJointRotation(entry.figure, this.joint);
     else {
       item.position = entry.root.position.toArray() as Vec3; item.rotation = entry.root.rotation.toArray().slice(0, 3) as Vec3; item.scale = entry.root.scale.toArray() as Vec3;
@@ -535,15 +658,54 @@ export class Studio {
     }));
     this.grid.visible = this.helpers && !this.cameraView;
     this.entries.forEach(e => { if (e.light) (e.root.children[0] as T.Mesh).visible = !this.cameraView; });
-    if (this.cameraView && this.state.camera.dof) {
+    const style = this.state.renderStyle ?? { ...DEFAULT_RENDER_STYLE };
+    this.shading.update(style, this.state.background);
+    // Keep the fill below the cel terminator so unshadowed fill lighting cannot
+    // erase the spotlight's cast-shadow shapes.
+    this.fill.intensity = style.mode === 'illustration' ? 0.35 : 1.1;
+    this.renderer.toneMapping = style.mode === 'realistic' || style.mode === 'clay' ? T.ACESFilmicToneMapping : T.NoToneMapping;
+    this.entries.forEach(e => { if (e.light) e.light.shadow.radius = style.mode === 'illustration' ? 1 : 2.2; });
+    const activeCamera = this.cameraView ? this.camera : this.editorCamera;
+    const layerMask = activeCamera.layers.mask;
+    activeCamera.layers.set(STAGE_LAYER);
+    const background = this.scene.background;
+    if (style.mode === 'outline') this.scene.background = new T.Color(paperColor(style, this.state.background));
+    const composed = needsInk(style) || (this.cameraView && this.state.camera.dof);
+    if (composed) {
       if (!this.composer) {
         this.composer = new EffectComposer(this.renderer);
-        this.composer.addPass(new RenderPass(this.scene, this.camera));
+        this.renderPass = new RenderPass(this.scene, activeCamera);
+        this.composer.addPass(this.renderPass);
+        this.inkPass = new NprInkPass(this.scene, activeCamera);
+        this.composer.addPass(this.inkPass);
         this.bokeh = new BokehPass(this.scene, this.camera, { focus: this.state.camera.focus, aperture: this.state.camera.aperture, maxblur: this.state.camera.maxBlur });
+        // Preserve the sampled ink alpha; stock BokehPass forces opaque output.
+        this.bokeh.materialBokeh.fragmentShader = this.bokeh.materialBokeh.fragmentShader.replace('gl_FragColor.a = 1.0;', '');
         this.composer.addPass(this.bokeh); this.composer.addPass(new OutputPass()); this.composer.setSize(this.width, this.height);
       }
+      this.renderPass!.camera = activeCamera;
+      this.inkPass!.camera = activeCamera;
+      this.inkPass!.enabled = needsInk(style); this.inkPass!.update(style, this.state.background);
+      this.bokeh!.enabled = this.cameraView && this.state.camera.dof;
       this.composer.render();
-    } else this.renderer.render(this.scene, this.cameraView ? this.camera : this.editorCamera);
+    } else this.renderer.render(this.scene, activeCamera);
+    this.scene.background = null;
+    if (!this.cameraView) {
+      this.renderer.autoClear = false;
+      if (composed) {
+        // Full-screen passes don't carry stage depth to the canvas. Restore it
+        // before helpers so the grid stays behind figures, never inside the ink.
+        this.renderer.clearDepth();
+        this.scene.overrideMaterial = this.helperDepth;
+        this.renderer.render(this.scene, activeCamera);
+        this.scene.overrideMaterial = null;
+      }
+      activeCamera.layers.set(HELPER_LAYER);
+      this.renderer.render(this.scene, activeCamera);
+      this.renderer.autoClear = true;
+    }
+    this.scene.background = background;
+    activeCamera.layers.mask = layerMask;
   }
   async exportPng(): Promise<Blob> {
     const wasView = this.cameraView;
@@ -557,12 +719,13 @@ export class Studio {
       const blob = await new Promise<Blob>((resolve, reject) => this.renderer.domElement.toBlob(b => b ? resolve(b) : reject(new Error('PNG encoding failed.')), 'image/png'));
       return blob;
     } finally {
-      this.setView(wasView);
       this.renderer.setPixelRatio(pixelRatio); this.composer?.setPixelRatio(pixelRatio);
+      this.setView(wasView);
       this.render();
     }
   }
   dispose(): void {
+    this.cancelMarquee();
     this.flushCameraGesture();
     this.alive = false; this.renderer.setAnimationLoop(null); this.resizeObserver.disconnect();
     this.renderer.domElement.removeEventListener('pointerdown', this.pointerDown, true);
@@ -577,7 +740,7 @@ export class Studio {
     this.orbit.removeEventListener('end', this.handleOrbitEnd);
     this.cameraOrbit.removeEventListener('change', this.handleCameraOrbitChange);
     this.cameraOrbit.removeEventListener('end', this.handleCameraOrbitEnd);
-    this.transform.dispose(); this.orbit.dispose(); this.cameraOrbit.dispose(); this.composer?.dispose(); this.bokeh?.dispose();
+    this.transform.dispose(); this.orbit.dispose(); this.cameraOrbit.dispose(); this.composer?.dispose(); this.bokeh?.dispose(); this.inkPass?.dispose(); this.helperDepth.dispose();
     disposeObject(this.scene, true); this.renderer.dispose(); this.renderer.domElement.remove();
   }
 }

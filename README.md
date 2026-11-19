@@ -54,6 +54,21 @@ aspect and focus → **Export PNG** / save scene in **Library**.
 The floor is a fixed neutral stage; background color changes the space above it.
 Lamp is a furnishing; add a separate Studio light for illumination.
 
+**Render styles:** The viewport's top-right switcher (shortcuts **1–5**) offers
+Realistic PBR, cel-shaded Illustration with geometric ink contours, pure Outline,
+matte Clay and unlit Flat color. **Camera → Render style** adjusts ink color,
+thickness, interior detail, two/three-tone shadows, paper and clay finish.
+Outline's **Transparent PNG** exports a 1600 px RGBA ink layer, including with DOF.
+Render settings travel with scenes, autosave and Undo/Redo; legacy scenes use Realistic.
+
+**Selection & pose transfer:** Shift-click viewport objects or Outliner rows to
+toggle a group. Ctrl/Cmd-drag a viewport marquee (also in Camera view); add Shift
+to extend selection. Move/Rotate operate about the selected position centroid.
+**Flip X/Y/Z** reflects a selected object or the entire group about that centroid.
+**Copy Pose / Paste Pose** transfers all 17 joints between figures in this session;
+**Advanced Copy · Skeleton Tree** copies checked joints only, preserving every
+other target joint. These edits are single-step undoable and immediately autosaved.
+
 **Appearance & Theme:** Select a figure to customize **Skin color** and
 **Outfit / dress color** independently (both luminance-normalized at runtime from
 the raw CC0 albedo/roughness maps into unpremultiplied RGBA `DataTexture`s so
@@ -98,6 +113,12 @@ one-step undo/redo. Optional `screenshotDirectory`, `bodies` and `joints` select
 evidence capture or repeated/duplicate-figure cases. Instrumentation observes
 the React-held engine only; it never sets poses or invokes engine editing methods.
 Do not run it in an owner's working tab.
+
+[scripts/batch2a-smoke.mjs](scripts/batch2a-smoke.mjs) exports
+`runBatch2ASmoke(page)` for a two-figure scene. It verifies Outliner/viewport
+Shift-click, Ctrl-drag in both views, real group Move/Rotate handle drags,
+three-axis group flips, atomic Undo/Redo, full pose transfer and left-arm-plus-head
+partial transfer with all other joints unchanged.
 
 ## Persistence and portable files
 

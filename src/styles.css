@@ -23,6 +23,8 @@
   --cp-panel-strong: rgba(255, 255, 255, 0.96);
   --cp-sheen: rgba(255, 255, 255, 0.55);
   --cp-highlight: rgba(177, 31, 75, 0.12);
+  --cp-paper: #faf6ee;
+  --cp-paper-checker: #ede8de;
 }
 html[data-theme="dark"] {
   color-scheme: dark;
@@ -997,6 +999,7 @@ section:last-child {
 }
 .viewport {
   position: relative;
+  container-type: inline-size;
   min-height: 200px;
   flex: 1;
   background: var(--cp-surface);
@@ -1008,6 +1011,71 @@ section:last-child {
   display: flex;
   justify-content: center;
   align-items: center;
+}
+.viewport-shading-hud {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 3;
+  max-width: calc(100% - 24px);
+  border: 1px solid var(--cp-border);
+  border-radius: 10px;
+  background: var(--cp-panel-strong);
+  backdrop-filter: blur(8px);
+}
+.viewport.transparent-paper {
+  background-color: var(--cp-paper);
+  background-image: repeating-conic-gradient(var(--cp-paper-checker) 0% 25%, var(--cp-paper) 0% 50%);
+  background-size: 20px 20px;
+}
+.viewport-shading-hud .segment { gap: 4px; padding: 5px 7px; font-size: 11px; }
+.viewport-shading-hud .segment > span:first-child { display: flex; }
+.viewport-caption { max-width: calc(100% - 440px); overflow: hidden; }
+.selection-marquee {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  border: 1px solid var(--cp-accent);
+  background: var(--cp-accent-soft);
+}
+.group-toolbar {
+  position: absolute;
+  bottom: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 6px;
+  border: 1px solid var(--cp-border);
+  border-radius: 10px;
+  background: var(--cp-panel-strong);
+  color: var(--cp-text);
+}
+.group-toolbar > span { padding-inline: 5px; font-size: 11px; }
+.three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-block: 10px; }
+.pose-copy-tree { margin-block: 14px; }
+.pose-copy-tree summary { cursor: pointer; color: var(--cp-text); font-weight: 600; padding-block: 8px; }
+.branch-pills { display: flex; flex-wrap: wrap; gap: 5px; padding-block: 8px; }
+.branch-pills button { font-size: 11px; min-height: 26px; padding: 4px 7px; }
+.skeleton-node { display: flex; align-items: center; gap: 8px; min-height: 29px; color: var(--cp-text); }
+.skeleton-node:hover { background: var(--cp-accent-soft); border-radius: 5px; }
+.skeleton-node input { accent-color: var(--cp-accent); }
+@media (max-width: 1180px) {
+  .viewport .viewport-caption { top: 53px; max-width: calc(100% - 24px); }
+  .viewport-shading-hud .segment { padding: 4px 5px; font-size: 10px; }
+}
+@media (max-width: 560px) {
+  .viewport-shading-hud { right: 8px; max-width: calc(100% - 16px); }
+  .viewport-shading-hud .segment:not(.active) > span:last-child { display: none; }
+}
+@container (max-width: 480px) {
+  .viewport-shading-hud .segment:not(.active) > span:last-child { display: none; }
+  .viewport .viewport-caption { top: 53px; max-width: calc(100% - 24px); }
 }
 canvas {
   display: block;

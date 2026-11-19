@@ -27,27 +27,35 @@ import { defaultHairStyle, HAIR_STYLE_LABELS, HAIR_STYLES } from './hair';
 import {
   applyPose,
   clone,
+  copyPoseNodes,
   createItem,
+  DEFAULT_RENDER_STYLE,
   DEFAULT_HAIR_COLOR,
   defaultOutfitColor,
   degrees,
   initialScene,
   isBody,
+  flipItems,
   JOINTS,
   MAX_FILE_BYTES,
   parseFile,
   parsePoseFile,
   poseFile,
+  pastePoseNodes,
   PRESETS,
   preset,
   PROP_KINDS,
   radians,
+  RENDER_MODES,
+  selectionCentroid,
   validatePortable,
   type HairStyleId,
   type Item,
   type Joint,
   type Portable,
   type Pose,
+  type PoseClipboard,
+  type RenderStyleState,
   type SceneState,
   type Vec3,
 } from './model';
@@ -74,6 +82,21 @@ const ANIM_CATEGORIES: readonly AnimationCycleCategory[] = [
   'Stealth & Ground',
   'Action & Athletic',
 ];
+
+const SHADING_ITEMS = RENDER_MODES.map((value, index) => ({
+  value, label: value[0].toUpperCase() + value.slice(1),
+  icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.3" fill={index === 3 ? 'currentColor' : 'none'} />{index !== 2 && <path d={index === 1 ? 'M4 10 10 4M6 12 12 6' : 'M8 2.5a5.5 5.5 0 0 1 0 11Z'} stroke="currentColor" fill={index === 1 ? 'none' : 'currentColor'} />}</svg>,
+}));
+const POSE_BRANCHES: Record<string, readonly Joint[]> = {
+  All: JOINTS, None: [],
+  'Upper body': JOINTS.slice(0, 11), 'Lower body': JOINTS.slice(11),
+  'Left arm': JOINTS.slice(5, 8), 'Right arm': JOINTS.slice(8, 11), 'Spine & head': JOINTS.slice(0, 5),
+};
+const JOINT_DEPTH: Record<Joint, number> = {
+  hips: 0, spine: 1, chest: 2, neck: 3, head: 4,
+  leftShoulder: 3, leftElbow: 4, leftWrist: 5, rightShoulder: 3, rightElbow: 4, rightWrist: 5,
+  leftHip: 1, leftKnee: 2, leftAnkle: 3, rightHip: 1, rightKnee: 2, rightAnkle: 3,
+};
 
 const JOINT_GROUPS: Record<Joint, string> = {
   hips: 'Torso & Head',
@@ -125,6 +148,11 @@ export function App() {
     future = useRef<SceneState[]>([]);
   const [historyTick, historyUpdate] = useState(0);
   const [selected, setSelected] = useState<string | null>(doc.items[0].id);
+  const [selectedIds, setSelectedIds] = useState<string[]>([doc.items[0].id]);
+  const selection = selected && !selectedIds.includes(selected) ? [selected] : selectedIds.filter(id => doc.items.some(i => i.id === id));
+  const selectionRef = useRef(selection); selectionRef.current = selection;
+  const [poseClipboard, setPoseClipboard] = useState<PoseClipboard | null>(null);
+  const [copyNodes, setCopyNodes] = useState<Joint[]>([...JOINTS]);
   const [joint, setJoint] = useState<Joint | null>(null);
   const [tab, setTab] = useState<Tab>('object');
   const [view, setView] = useState(false),
@@ -285,7 +313,7 @@ export function App() {
   }, []);
 
   const select = useCallback(
-    (id: string | null, j: Joint | null) => {
+    (id: string | null, j: Joint | null, additive = false) => {
       const ps = previewStateRef.current;
       if (ps.animPreviewing) {
         if (id && id === ps.selected && j !== null) {
@@ -296,8 +324,12 @@ export function App() {
           engine.current?.sync(current.current);
         }
       }
-      setSelected(id);
-      setJoint(j);
+      const ids = additive && id
+        ? selectionRef.current.includes(id) ? selectionRef.current.filter(key => key !== id) : [...selectionRef.current, id]
+        : id ? [id] : [];
+      setSelectedIds(ids);
+      setSelected(additive ? ids.at(-1) ?? null : id);
+      setJoint(ids.length > 1 ? null : j);
       if (id) setTab('object');
     },
     [applyActiveAnimPose],
@@ -310,6 +342,34 @@ export function App() {
       if (i) Object.assign(i, patch);
     });
   const editCamera = (patch: Partial<SceneState['camera']>) => update(next => Object.assign(next.camera, patch));
+  const renderStyle = { ...DEFAULT_RENDER_STYLE, ...doc.renderStyle };
+  const editRenderStyle = (patch: Partial<RenderStyleState>) => update(next => {
+    next.renderStyle = { ...DEFAULT_RENDER_STYLE, ...next.renderStyle, ...patch };
+  });
+  const flipSelection = (axis: 0 | 1 | 2) => {
+    try {
+      const next = clone(current.current);
+      next.items = flipItems(next.items, selection, axis);
+      validatePortable(next);
+      commit(next);
+    } catch (error) { report(error); }
+  };
+  const selectMany = (ids: string[]) => {
+    cancelAnimPreview();
+    setSelectedIds(ids); setSelected(ids.at(-1) ?? null); setJoint(null);
+    if (ids.length) setTab('object');
+  };
+  const copyNodesToClipboard = (nodes: readonly Joint[]) => {
+    if (!item) return;
+    setPoseClipboard(copyPoseNodes(item, nodes));
+    notify(`Copied ${nodes.length}/17 joints from ${item.name}.`);
+  };
+  const pasteClipboard = () => {
+    if (!item || !poseClipboard) return;
+    cancelAnimPreview();
+    editItem({ pose: pastePoseNodes(item, poseClipboard).pose });
+    notify(`Pasted ${poseClipboard.joints.length}/17 joints from ${poseClipboard.source}.`);
+  };
   const undo = useCallback(
     (redo = false) => {
       engine.current?.cancelCameraGesture();
@@ -448,6 +508,7 @@ export function App() {
     },
     cameraChange: handleCameraOrbitGesture,
     select,
+    selectMany,
     error: report,
   });
   studioCallbacksRef.current = {
@@ -465,6 +526,7 @@ export function App() {
     },
     cameraChange: handleCameraOrbitGesture,
     select,
+    selectMany,
     error: report,
   };
 
@@ -530,7 +592,8 @@ export function App() {
           liveChange: live => studioCallbacksRef.current.liveChange(live),
           orbitChange: (orbit, settled) => studioCallbacksRef.current.orbitChange(orbit, settled),
           cameraChange: (pose, settled) => studioCallbacksRef.current.cameraChange(pose, settled),
-          select: (id, j) => studioCallbacksRef.current.select(id, j),
+          select: (id, j, additive) => studioCallbacksRef.current.select(id, j, additive),
+          selectMany: ids => studioCallbacksRef.current.selectMany(ids),
           error: err => studioCallbacksRef.current.error(err),
         });
         engine.current = studio;
@@ -619,8 +682,8 @@ export function App() {
     engine.current?.sync(doc);
   }, [doc]);
   useEffect(() => {
-    engine.current?.select(selected, joint);
-  }, [selected, joint, doc]);
+    engine.current?.select(selected, joint, selection);
+  }, [selected, selectedIds, joint, doc]);
   useEffect(() => {
     engine.current?.setView(view);
   }, [view]);
@@ -689,13 +752,17 @@ export function App() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         undo(true);
+      } else if (!e.ctrlKey && !e.metaKey && /^[1-5]$/.test(e.key)) {
+        const next = clone(current.current);
+        next.renderStyle = { ...DEFAULT_RENDER_STYLE, ...next.renderStyle, mode: RENDER_MODES[Number(e.key) - 1] };
+        commit(next);
       } else if (e.key.toLowerCase() === 'w') {
         setJoint(null);
         setMode('translate');
       } else if (e.key.toLowerCase() === 'e') {
         setJoint(null);
         setMode('rotate');
-      } else if (e.key.toLowerCase() === 'r') {
+      } else if (e.key.toLowerCase() === 'r' && selectionRef.current.length < 2) {
         setJoint(null);
         setMode('scale');
       } else if (e.key.toLowerCase() === 'f') engine.current?.focusSelected();
@@ -705,7 +772,7 @@ export function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [undo, removeSelected, help, loading, loadError]);
+  }, [undo, removeSelected, help, loading, loadError, commit]);
 
   useEffect(() => {
     if (!animPlaying || !activeClip) return;
@@ -1097,8 +1164,8 @@ export function App() {
                         icon={isBody(i.kind) ? Icons.figure : i.kind === 'light' ? Icons.light : Icons.prop}
                         title={i.name}
                         meta={subtitle}
-                        selected={i.id === selected}
-                        onSelect={() => select(i.id, null)}
+                        selected={selection.includes(i.id)}
+                        onSelect={event => select(i.id, null, event.shiftKey)}
                         onDelete={() => removeItemById(i.id)}
                         deleteLabel={`Delete ${i.name}`}
                       />
@@ -1120,12 +1187,12 @@ export function App() {
             <div className="toolbar-group">
               <SegmentedControl
                 ariaLabel="Transform mode"
-                value={mode}
+                value={selection.length > 1 && mode === 'scale' ? 'translate' : mode}
                 disabled={view}
                 items={[
                   { value: 'translate', label: 'Move', shortcut: 'W' },
                   { value: 'rotate', label: 'Rotate', shortcut: 'E' },
-                  { value: 'scale', label: 'Scale', shortcut: 'R' },
+                  ...(selection.length > 1 ? [] : [{ value: 'scale' as const, label: 'Scale', shortcut: 'R' }]),
                 ]}
                 onChange={m => {
                   setJoint(null);
@@ -1149,8 +1216,11 @@ export function App() {
             </div>
           </div>
 
-          <div className={`viewport ${view ? 'camera-view' : ''}`}>
+          <div className={`viewport ${view ? 'camera-view' : ''} ${renderStyle.mode === 'outline' && renderStyle.outlinePaper === 'transparent' ? 'transparent-paper' : ''}`}>
             <div ref={host} className="canvas-host" />
+            <div className="viewport-shading-hud">
+              <SegmentedControl ariaLabel="Viewport shading" value={renderStyle.mode} items={SHADING_ITEMS} onChange={mode => editRenderStyle({ mode })} />
+            </div>
             <div className="viewport-caption">
               <span className="view-pill">
                 {view
@@ -1170,6 +1240,11 @@ export function App() {
                 Controls & workflow
               </button>
             </div>
+            {selection.length > 1 && <div className="group-toolbar" aria-label="Group actions">
+              <span>{selection.length} selected</span>
+              {(['X', 'Y', 'Z'] as const).map((axis, index) => <button key={axis} type="button" onClick={() => flipSelection(index as 0 | 1 | 2)}>Flip {axis}</button>)}
+              <button type="button" onClick={() => select(null, null)}>Clear selection</button>
+            </div>}
           </div>
 
           <footer className="statusbar">
@@ -1201,7 +1276,24 @@ export function App() {
 
           <div className="scroll inspector-content">
             {tab === 'object' &&
-              (item ? (
+              (selection.length > 1 ? (
+                <section aria-label="Multi-selection">
+                  <div className="eyebrow">TRANSFORM · GROUP</div>
+                  <h2>{selection.length} objects selected</h2>
+                  <p className="muted">Move or rotate the group gizmo around the shared position centroid. Shift-click toggles objects; Ctrl-drag selects a region.</p>
+                  <Vector3Field label="Group position (m)" value={selectionCentroid(doc.items.filter(i => selection.includes(i.id)))} min={-100} max={100} onChange={position => update(next => {
+                    const center = selectionCentroid(next.items.filter(i => selection.includes(i.id)));
+                    const offset = position.map((v, axis) => v - center[axis]);
+                    for (const target of next.items.filter(i => selection.includes(i.id))) {
+                      target.position = target.position.map((v, axis) => v + offset[axis]) as Vec3;
+                      if (target.target) target.target = target.target.map((v, axis) => v + offset[axis]) as Vec3;
+                    }
+                  })} />
+                  <p className="muted">Centroid: {selectionCentroid(doc.items.filter(i => selection.includes(i.id))).map(v => v.toFixed(2)).join(', ')} m</p>
+                  <div className="three">{(['X', 'Y', 'Z'] as const).map((axis, index) => <button key={axis} type="button" onClick={() => flipSelection(index as 0 | 1 | 2)}>Flip {axis}</button>)}</div>
+                  <button type="button" className="full-btn" onClick={() => select(null, null)}>Clear selection</button>
+                </section>
+              ) : item ? (
                 <>
                   <section>
                     <div className="eyebrow">
@@ -1258,6 +1350,22 @@ export function App() {
                       <p className="muted">
                         Click any gold marker on the figure (turns coral) and drag its rotation rings, or pick a joint below.
                       </p>
+                      <div className="two">
+                        <button type="button" onClick={() => copyNodesToClipboard(JOINTS)}>Copy Pose</button>
+                        <button type="button" disabled={!poseClipboard} onClick={pasteClipboard}>{!poseClipboard || poseClipboard.joints.length === 17 ? 'Paste Pose' : 'Paste Partial Pose'}</button>
+                      </div>
+                      {poseClipboard && <p className="muted">Clipboard: {poseClipboard.joints.length}/17 joints from {poseClipboard.source}</p>}
+                      <details className="pose-copy-tree">
+                        <summary>Advanced Copy · Skeleton Tree</summary>
+                        <div className="branch-pills">{Object.entries(POSE_BRANCHES).map(([name, nodes]) => <button key={name} type="button" onClick={() => setCopyNodes([...nodes])}>{name}</button>)}</div>
+                        <div role="group" aria-label="Skeleton hierarchy">
+                          {JOINTS.map(node => <label key={node} className="skeleton-node" style={{ paddingInlineStart: `${8 + JOINT_DEPTH[node] * 14}px` }}>
+                            <input type="checkbox" checked={copyNodes.includes(node)} onChange={event => setCopyNodes(previous => event.target.checked ? [...previous, node] : previous.filter(j => j !== node))} />
+                            {node === 'spine' ? 'Waist' : label(node)}
+                          </label>)}
+                        </div>
+                        <button type="button" className="full-btn" disabled={!copyNodes.length} onClick={() => copyNodesToClipboard(copyNodes)}>Copy Selected Nodes ({copyNodes.length}/17)</button>
+                      </details>
 
                       <div className="select-field">
                         <span className="field-label">Editing target</span>
@@ -1459,6 +1567,7 @@ export function App() {
 
                   <section>
                     <h3>Root transform</h3>
+                    <div className="three">{(['X', 'Y', 'Z'] as const).map((axis, index) => <button key={axis} type="button" onClick={() => flipSelection(index as 0 | 1 | 2)}>Flip {axis}</button>)}</div>
                     <Vector3Field
                       label="Position (m)"
                       value={item.position}
@@ -1478,9 +1587,12 @@ export function App() {
                     <Vector3Field
                       label="Scale"
                       value={item.scale}
-                      min={0.05}
+                      min={-10}
                       max={10}
-                      onChange={scale => editItem({ scale })}
+                      onChange={scale => {
+                        if (scale.some(v => Math.abs(v) < 0.05)) { notify('Scale magnitude must be at least 0.05. Use Flip to mirror.', true); return; }
+                        editItem({ scale });
+                      }}
                     />
                   </section>
 
@@ -1675,6 +1787,29 @@ export function App() {
                   </div>
                 </section>
 
+                <section aria-label="Render style">
+                  <h3>Render style</h3>
+                  <SelectDropdown ariaLabel="Shading mode" value={renderStyle.mode} options={SHADING_ITEMS} onChange={mode => editRenderStyle({ mode: mode as RenderStyleState['mode'] })} />
+                  {(renderStyle.mode === 'illustration' || renderStyle.mode === 'outline' || (renderStyle.mode === 'clay' && renderStyle.clayOutlines)) && <>
+                    <ColorField label="Ink color" value={renderStyle.inkColor} onChange={inkColor => editRenderStyle({ inkColor })} />
+                    <SliderField label="Ink thickness" value={renderStyle.inkWidth} min={0.5} max={3} step={0.1} displayValue={`${renderStyle.inkWidth.toFixed(1)} px`} onChange={inkWidth => editRenderStyle({ inkWidth })} />
+                    <SliderField label="Interior detail" value={renderStyle.interiorDetail} min={0} max={1} step={0.05} displayValue={`${Math.round(renderStyle.interiorDetail * 100)}%`} onChange={interiorDetail => editRenderStyle({ interiorDetail })} />
+                  </>}
+                  {renderStyle.mode === 'illustration' && <>
+                    <SegmentedControl ariaLabel="Shadow steps" fullWidth value={String(renderStyle.shadowSteps)} items={[{ value: '2', label: '2-tone' }, { value: '3', label: '3-tone' }]} onChange={steps => editRenderStyle({ shadowSteps: steps === '2' ? 2 : 3 })} />
+                    <SegmentedControl ariaLabel="Shadow temperature" fullWidth value={renderStyle.shadowTemp} items={[{ value: 'cool', label: 'Cool' }, { value: 'warm', label: 'Warm' }, { value: 'neutral', label: 'Neutral' }]} onChange={shadowTemp => editRenderStyle({ shadowTemp })} />
+                  </>}
+                  {renderStyle.mode === 'outline' && <div className="select-field">
+                    <span className="field-label">Paper background / Transparent PNG</span>
+                    <SelectDropdown ariaLabel="Paper background" value={renderStyle.outlinePaper} options={[{ value: 'warm', label: 'Warm paper' }, { value: 'white', label: 'Pure white' }, { value: 'scene', label: 'Scene background' }, { value: 'transparent', label: 'Transparent PNG' }]} onChange={paper => editRenderStyle({ outlinePaper: paper as RenderStyleState['outlinePaper'] })} />
+                  </div>}
+                  {renderStyle.mode === 'clay' && <>
+                    <SelectDropdown ariaLabel="Clay tone" value={renderStyle.clayFinish} options={[{ value: 'terracotta', label: 'Terracotta' }, { value: 'grey', label: 'Studio Grey' }, { value: 'plaster', label: 'Warm Plaster' }]} onChange={tone => editRenderStyle({ clayFinish: tone as RenderStyleState['clayFinish'] })} />
+                    <SwitchRow label="Contour ink" checked={renderStyle.clayOutlines} onChange={clayOutlines => editRenderStyle({ clayOutlines })} />
+                  </>}
+                  {renderStyle.mode === 'realistic' && <p className="muted">Physically based studio lighting with soft shadows.</p>}
+                  {renderStyle.mode === 'flat' && <p className="muted">Unlit local colors for silhouette and value checks.</p>}
+                </section>
                 <section>
                   <h3>Stage backdrop</h3>
                   <ColorField
@@ -1882,6 +2017,10 @@ export function App() {
                 <dd>Orbit / Pan / Zoom</dd>
                 <dt>W / E / R</dt>
                 <dd>Root Move / Rotate / Scale</dd>
+                <dt>1 / 2 / 3 / 4 / 5</dt>
+                <dd>Realistic / Illustration / Outline / Clay / Flat</dd>
+                <dt>Shift-click / Ctrl-drag</dt>
+                <dd>Toggle selection / Marquee (Shift adds)</dd>
                 <dt>F / C / Escape</dt>
                 <dd>Frame selected / Toggle Camera / Root mode</dd>
                 <dt>Ctrl Z / Ctrl Shift Z</dt>

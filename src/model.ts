@@ -1,4 +1,20 @@
+import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
+
 export type Vec3 = [number, number, number];
+export const RENDER_MODES = ['realistic', 'illustration', 'outline', 'clay', 'flat'] as const;
+export type RenderModeId = typeof RENDER_MODES[number];
+export interface RenderStyleState {
+  mode: RenderModeId;
+  inkColor: string; inkWidth: number; interiorDetail: number;
+  shadowSteps: 2 | 3; shadowTemp: 'cool' | 'warm' | 'neutral';
+  outlinePaper: 'warm' | 'white' | 'scene' | 'transparent';
+  clayFinish: 'terracotta' | 'grey' | 'plaster'; clayOutlines: boolean;
+}
+export const DEFAULT_RENDER_STYLE: Readonly<RenderStyleState> = {
+  mode: 'realistic', inkColor: '#1f1b18', inkWidth: 1.5, interiorDetail: 0.65,
+  shadowSteps: 2, shadowTemp: 'cool', outlinePaper: 'warm',
+  clayFinish: 'terracotta', clayOutlines: false,
+};
 export const JOINTS = ['hips', 'spine', 'chest', 'neck', 'head', 'leftShoulder', 'leftElbow', 'leftWrist', 'rightShoulder', 'rightElbow', 'rightWrist', 'leftHip', 'leftKnee', 'leftAnkle', 'rightHip', 'rightKnee', 'rightAnkle'] as const;
 export type Joint = typeof JOINTS[number];
 export type Pose = Record<Joint, Vec3>;
@@ -26,7 +42,7 @@ export interface CameraState {
 }
 export interface SceneState {
   schemaVersion: 1; rigVersion: 1; type: 'scene'; name: string; items: Item[];
-  background: string; camera: CameraState;
+  background: string; camera: CameraState; renderStyle?: RenderStyleState;
 }
 export interface PoseFile { schemaVersion: 1; rigVersion: 1; type: 'pose'; name: string; body: Body; pose: Pose }
 export type Portable = SceneState | PoseFile;
@@ -231,7 +247,7 @@ export function initialScene(): SceneState {
   const female = createItem('female'); female.position = [0.55, -0.005, 0.05]; female.pose = preset('Relaxed'); female.rotation[1] = -0.15;
   return {
     schemaVersion: 1, rigVersion: 1, type: 'scene', name: 'Untitled study',
-    items: [male, female, createItem('light')], background: '#343231',
+    items: [male, female, createItem('light')], background: '#343231', renderStyle: { ...DEFAULT_RENDER_STYLE },
     camera: { position: [3.4, 2.3, 5.7], target: [0, 1, 0], focalLength: 50, near: 0.05, far: 100, aspect: '3:2', dof: false, focus: 6.7, aperture: 0.0015, maxBlur: 0.012 },
   };
 }
@@ -267,7 +283,9 @@ export function validatePortable(value: unknown): Portable {
     if (ids.has(id)) fail('duplicate item ID');
     ids.add(id);
     const kind = enumValue(i.kind, ['male', 'female', ...PROP_KINDS, 'light']);
-    const item: Item = { id, kind, name: text(i.name), color: color(i.color), position: vec(i.position), rotation: vec(i.rotation, -Math.PI * 2, Math.PI * 2), scale: vec(i.scale, 0.05, 10) };
+    const scale = vec(i.scale, -10, 10);
+    if (scale.some(n => Math.abs(n) < 0.05)) fail('scale magnitude must be at least 0.05');
+    const item: Item = { id, kind, name: text(i.name), color: color(i.color), position: vec(i.position), rotation: vec(i.rotation, -Math.PI * 2, Math.PI * 2), scale };
     if (isBody(kind)) {
       item.pose = validatePose(i.pose);
       item.outfitColor = i.outfitColor === undefined ? defaultOutfitColor(kind) : color(i.outfitColor);
@@ -284,6 +302,7 @@ export function validatePortable(value: unknown): Portable {
   const dof = typeof c.dof === 'boolean' ? c.dof : fail('DOF must be boolean');
   return {
     schemaVersion: 1, rigVersion: 1, type: 'scene', name, items, background: color(v.background),
+    renderStyle: validateRenderStyle(v.renderStyle),
     camera: { position: vec(c.position), target: vec(c.target), focalLength: num(c.focalLength, 15, 150), near, far, aspect: enumValue(c.aspect, ['3:2', '16:9', '1:1', '4:5']), dof, focus: num(c.focus, 0.1, 100), aperture: num(c.aperture, 0.00001, 0.005), maxBlur: num(c.maxBlur, 0.001, 0.05) },
   };
 }
@@ -320,4 +339,57 @@ export function poseFile(item: Item, name: string): PoseFile {
 export function applyPose(item: Item, file: PoseFile): Item {
   if (!isBody(item.kind)) throw new Error('Select a male or female figure before applying a pose.');
   return { ...item, pose: clone(file.pose) };
+}
+
+export function validateRenderStyle(value: unknown): RenderStyleState {
+  const s = { ...DEFAULT_RENDER_STYLE, ...(value === undefined ? {} : obj(value)) };
+  if (typeof s.clayOutlines !== 'boolean') fail('clay outlines must be boolean');
+  if (s.shadowSteps !== 2 && s.shadowSteps !== 3) fail('shadow steps must be 2 or 3');
+  return {
+    mode: enumValue(s.mode, RENDER_MODES), inkColor: color(s.inkColor),
+    inkWidth: num(s.inkWidth, 0.5, 3), interiorDetail: num(s.interiorDetail, 0, 1),
+    shadowSteps: s.shadowSteps, shadowTemp: enumValue(s.shadowTemp, ['cool', 'warm', 'neutral']),
+    outlinePaper: enumValue(s.outlinePaper, ['warm', 'white', 'scene', 'transparent']),
+    clayFinish: enumValue(s.clayFinish, ['terracotta', 'grey', 'plaster']), clayOutlines: s.clayOutlines,
+  };
+}
+
+export interface PoseClipboard { source: string; joints: Joint[]; pose: Pose }
+export function copyPoseNodes(item: Item, joints: readonly Joint[] = JOINTS): PoseClipboard {
+  if (!item.pose || !isBody(item.kind) || !joints.length) throw new Error('Select a figure and at least one joint to copy.');
+  return { source: item.name, joints: [...new Set(joints)], pose: clone(item.pose) };
+}
+export function pastePoseNodes(item: Item, clipboard: PoseClipboard): Item {
+  if (!item.pose || !isBody(item.kind)) throw new Error('Select a figure to paste a pose.');
+  const pose = clone(item.pose);
+  clipboard.joints.forEach(j => { pose[j] = clone(clipboard.pose[j]); });
+  return { ...item, pose };
+}
+export function selectionCentroid(items: readonly Item[]): Vec3 {
+  if (!items.length) return [0, 0, 0];
+  return [0, 1, 2].map(axis => items.reduce((sum, i) => sum + i.position[axis], 0) / items.length) as Vec3;
+}
+export function transformItems(items: readonly Item[], ids: readonly string[], delta: Matrix4, reflectionAxis: 0 | 1 | 2 = 0): Item[] {
+  return items.map(item => {
+    if (!ids.includes(item.id)) return clone(item);
+    const matrix = new Matrix4().compose(new Vector3(...item.position), new Quaternion().setFromEuler(new Euler(...item.rotation)), new Vector3(...item.scale));
+    matrix.premultiply(delta);
+    const p = new Vector3(), q = new Quaternion(), s = new Vector3();
+    matrix.decompose(p, q, s);
+    const signs = item.scale.map(Math.sign) as Vec3;
+    if (delta.determinant() < 0) signs[reflectionAxis] *= -1;
+    s.set(Math.abs(s.x) * signs[0], Math.abs(s.y) * signs[1], Math.abs(s.z) * signs[2]);
+    q.setFromRotationMatrix(matrix.clone().scale(new Vector3(1 / s.x, 1 / s.y, 1 / s.z)));
+    const result = { ...clone(item), position: p.toArray() as Vec3, rotation: new Euler().setFromQuaternion(q).toArray().slice(0, 3) as Vec3, scale: s.toArray() as Vec3 };
+    if (result.target) result.target = new Vector3(...result.target).applyMatrix4(delta).toArray() as Vec3;
+    return result;
+  });
+}
+export function flipItems(items: readonly Item[], ids: readonly string[], axis: 0 | 1 | 2): Item[] {
+  const center = selectionCentroid(items.filter(i => ids.includes(i.id)));
+  const scale: Vec3 = [1, 1, 1]; scale[axis] = -1;
+  const delta = new Matrix4().makeTranslation(...center)
+    .multiply(new Matrix4().makeScale(...scale))
+    .multiply(new Matrix4().makeTranslation(-center[0], -center[1], -center[2]));
+  return transformItems(items, ids, delta, axis);
 }

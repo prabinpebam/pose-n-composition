@@ -3,6 +3,7 @@ import * as T from 'three';
 import {
   applyPose,
   clone,
+  copyPoseNodes,
   createItem,
   DEFAULT_FEMALE_OUTFIT_COLOR,
   DEFAULT_FEMALE_SKIN_COLOR,
@@ -11,18 +12,65 @@ import {
   DEFAULT_MALE_SKIN_COLOR,
   HAIR_STYLE_IDS,
   initialScene,
+  flipItems,
   JOINTS,
   neutralPose,
   parseFile,
   parsePoseFile,
+  pastePoseNodes,
   poseFile,
   PRESETS,
   preset,
   PROP_KINDS,
   validatePoseFile,
   validatePortable,
+  transformItems,
 } from './model';
 import { makeFigure, setFigurePose } from './rig';
+
+describe('group transforms and pose clipboard', () => {
+  it.each([0, 1, 2] as const)('reflects rotated and nonuniformly scaled objects across group axis %s and round-trips', axis => {
+    const a = createItem('male'), b = createItem('chair'), untouched = createItem('light');
+    a.position = [-2, 1, 0]; b.position = [4, 3, 2];
+    a.rotation = [0.2, -0.5, 0.6]; a.scale = [-1, 1.5, 0.8];
+    b.rotation = [-0.3, 0.4, 0.7]; b.scale = [0.5, 1, 2];
+    const items = [a, b, untouched], original = clone(items), ids = [a.id, b.id];
+    const flipped = flipItems(items, ids, axis);
+    expect(items).toEqual(original); expect(flipped[2]).toEqual(untouched);
+    flipped[0].scale.forEach((value, k) => expect(value).toBeCloseTo(a.scale[k] * (k === axis ? -1 : 1)));
+    const center = [1, 2, 1];
+    expect(flipped[0].position[axis]).toBeCloseTo(2 * center[axis] - a.position[axis]);
+    const matrix = (item: typeof a) => new T.Matrix4().compose(new T.Vector3(...item.position), new T.Quaternion().setFromEuler(new T.Euler(...item.rotation)), new T.Vector3(...item.scale));
+    const roundtrip = flipItems(flipped, ids, axis);
+    for (let n = 0; n < 2; n++) matrix(roundtrip[n]).elements.forEach((v, k) => expect(v).toBeCloseTo(matrix(items[n]).elements[k], 8));
+    const scene = initialScene(); scene.items = flipped;
+    expect(() => validatePortable(scene)).not.toThrow();
+    flipped[0].scale[axis] = 0;
+    expect(() => validatePortable(scene)).toThrow('scale magnitude');
+  });
+  it('rotates positions, orientations and spotlight targets as one world-space group', () => {
+    const a = createItem('chair'), b = createItem('light');
+    a.position = [1, 0, 0]; a.scale = [1, -1, 1]; b.position = [-1, 0, 0]; b.target = [1, 1, 0];
+    const rotated = transformItems([a, b], [a.id, b.id], new T.Matrix4().makeRotationY(Math.PI / 2));
+    expect(rotated[0].position[2]).toBeCloseTo(-1);
+    expect(rotated[1].position[2]).toBeCloseTo(1);
+    expect(rotated[1].target![2]).toBeCloseTo(-1);
+    expect(rotated[0].rotation[1]).toBeCloseTo(Math.PI / 2);
+    expect(rotated[0].scale).toEqual(a.scale);
+  });
+  it('copies selected joints only without changing target legs, opposite arm, appearance or placement', () => {
+    const source = createItem('male'), target = createItem('female');
+    source.pose = preset('Reach'); target.pose = preset('Running');
+    const before = clone(target);
+    const nodes = ['leftShoulder', 'leftElbow', 'leftWrist', 'head'] as const;
+    const clipboard = copyPoseNodes(source, nodes), pasted = pastePoseNodes(target, clipboard);
+    for (const joint of JOINTS) expect(pasted.pose![joint]).toEqual(nodes.some(j => j === joint) ? source.pose[joint] : before.pose![joint]);
+    expect({ ...pasted, pose: before.pose }).toEqual(before);
+    source.pose.head[0] = 99;
+    expect(clipboard.pose.head[0]).not.toBe(99);
+    expect(pastePoseNodes(target, copyPoseNodes(before)).pose).toEqual(before.pose);
+  });
+});
 
 describe('portable scene and pose contracts', () => {
   it('round-trips both bodies, all semantic rotations and full scene composition', () => {

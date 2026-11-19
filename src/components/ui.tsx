@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 /* --- Studio SVG Icons (16x16, stroke-based, crisp at 1x/1.5x/2x DPI) --- */
@@ -342,6 +342,7 @@ export interface SegmentItem<T extends string> {
   value: T;
   label: string;
   shortcut?: string;
+  icon?: ReactNode;
 }
 
 export function SegmentedControl<T extends string>({
@@ -374,6 +375,8 @@ export function SegmentedControl<T extends string>({
           <button
             key={item.value}
             type="button"
+            aria-label={item.icon ? item.label : undefined}
+            title={item.icon ? item.label : undefined}
             disabled={disabled}
             role={role === 'tablist' ? 'tab' : undefined}
             aria-selected={role === 'tablist' ? active : undefined}
@@ -381,6 +384,7 @@ export function SegmentedControl<T extends string>({
             className={active ? 'segment active' : 'segment'}
             onClick={() => onChange(item.value)}
           >
+            {item.icon && <span aria-hidden="true">{item.icon}</span>}
             <span>{item.label}</span>
             {item.shortcut && <kbd>{item.shortcut}</kbd>}
           </button>
@@ -438,13 +442,13 @@ export function ListRow({
   title: string;
   meta: string;
   selected?: boolean;
-  onSelect: () => void;
+  onSelect: (event: MouseEvent) => void;
   onDelete?: () => void;
   deleteLabel?: string;
 }) {
   return (
     <li className={selected ? 'list-row selected' : 'list-row'} onClick={onSelect}>
-      <button type="button" className="list-row-main" onClick={onSelect}>
+      <button type="button" className="list-row-main">
         <span className="list-row-badge">{icon}</span>
         <span className="list-row-copy">
           <span className="list-row-title">{title}</span>
@@ -568,6 +572,7 @@ export function NumericField({
   }, [value, precision]);
 
   const apply = () => {
+    if (draft === format(value)) return;
     const n = Number(draft);
     if (!draft.trim() || !Number.isFinite(n) || n < min || n > max) {
       setInvalid(true);
