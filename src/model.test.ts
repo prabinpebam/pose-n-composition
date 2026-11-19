@@ -73,6 +73,26 @@ describe('group transforms and pose clipboard', () => {
 });
 
 describe('portable scene and pose contracts', () => {
+  it('defaults legacy figures to heroic anatomy and rejects malformed new options', () => {
+    const scene = initialScene();
+    delete scene.items[0].bodyType; delete scene.items[0].anatomicalLimits;
+    const restored = validatePortable(scene);
+    if (restored.type !== 'scene') throw new Error('Expected scene');
+    expect(restored.items[0].bodyType).toBe('heroic');
+    expect(restored.items[0].anatomicalLimits).toBe(true);
+    for (const patch of [{ bodyType: 'unknown' }, { bodyType: null }, { anatomicalLimits: 'false' }, { anatomicalLimits: null }]) {
+      expect(() => validatePortable({ ...scene, items: [{ ...scene.items[0], ...patch }] })).toThrow('Invalid file');
+    }
+  });
+  it('adds a chosen archetype while keeping pose files strictly appearance-free', () => {
+    const figure = createItem('female', 0, 'chibi');
+    figure.anatomicalLimits = false;
+    expect(figure.bodyType).toBe('chibi');
+    const file = poseFile(figure, 'Study');
+    expect(Object.keys(file).sort()).toEqual(['schemaVersion', 'rigVersion', 'type', 'name', 'body', 'pose'].sort());
+    const target = createItem('male', 0, 'obese'), before = clone(target);
+    expect({ ...applyPose(target, file), pose: before.pose }).toEqual(before);
+  });
   it('round-trips both bodies, all semantic rotations and full scene composition', () => {
     const scene = initialScene();
     scene.items = ['male', 'female', ...PROP_KINDS, 'light'].map((k, n) => {

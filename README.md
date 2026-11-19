@@ -10,7 +10,7 @@ an independent composition camera. No accounts, backend, uploads or telemetry.
 
 The figures are **Quaternius Universal Base Characters, free Standard edition,
 Superhero male/female**, under the exact distribution's CC0 license. They have
-muscular/stylized proportions, not the paid Regular or Teen variants.
+runtime-adjustable proportions based on the free superhero meshes, not the paid Regular or Teen variants.
 See [asset provenance and license](docs/ASSETS.md). First load downloads about
 30 MB of same-site model/textures; load errors are visible and retryable.
 
@@ -171,6 +171,26 @@ across bodies. No IndexedDB or preference data is cleared or rewritten by this
 model change. Unit/height normalization lives inside the figure wrapper (male
 1.85 m, female 1.75 m); the user's root scale remains 1.
 
+### Body proportions and extreme poses
+
+Choose **New figure proportion** before adding Male/Female, or change **Body
+proportion** on any existing character: **Realistic, Heroic, Lean, Slender, Busty,
+Chubby, Fat, Obese, Chibi**. Changes preserve pose/colors, scale the eyes and
+swappable scalp hair with the skull, re-ground the deformed body, and support
+single-step Undo/Redo plus immediate autosave.
+
+The pose-change-only CPU pipeline combines coupled clavicle/spine/toe helpers,
+continuous axial twist with hybrid dual-quaternion skinning and welded Delta
+Mush, then muscle bulges, crease-bisector contact and body-scaled capsule pushout.
+The same deformed vertices/normals drive PBR, NPR ink, shadows, DOF, picking and
+floor grounding; unchanged poses do not rerun deformation. **Anatomical joint
+limits** defaults on; turn it off for unconstrained rotations.
+
+Scene v1 adds optional `bodyType` (legacy default `heroic`) and
+`anatomicalLimits` (legacy default `true`). Invalid present options reject.
+Pose JSON remains strictly joints-only: proportions, limits and all appearance
+stay with the target character. No storage reset or schema-version bump.
+
 ## Camera and rendering
 
 Editor orbit never modifies the saved composition camera. Switching to **Camera**
@@ -185,7 +205,8 @@ approximately 26.99147° vertical FOV.
 Depth of field is a real depth-texture **Three.js BokehPass**, enabled only for
 camera view and PNG. Focus is axial camera-space distance in meters; aperture is
 the shader's artistic blur-strength parameter, **not an f-stop**. Disabling DOF
-bypasses the composer entirely (no depth or postprocess rendering passes).
+bypasses the blur pass; Illustration/Outline and optional Clay ink still use
+their geometric contour pass before output color conversion.
 Camera preview and 1600 px-wide PNG share the same camera, lens, aspect and DOF.
 PNG hides joints, light icons, gizmos and grid.
 
@@ -209,12 +230,15 @@ PNG hides joints, light icons, gizmos and grid.
 
 ## Scope and limitations
 
-Static FK posing only: no IK, joint constraints, animation, finger articulation,
-rig authoring or user model import. Figures are stylized muscular reference bodies,
-not medical anatomy. Extreme rotations can self-intersect or pinch. Skin and outfit albedo maps are
+Static FK posing with optional anatomical bounds and animation-frame extraction:
+no IK, finger articulation, rig authoring or user model import. Figures are stylized
+reference bodies, not medical anatomy. Analytical contact reduces extreme-pose
+pinching/intersection, but is not a full cloth/soft-body or inter-character collision
+simulation; impossible free rotations can still intersect. Skin and outfit albedo maps are
 luminance-normalized at runtime so chosen colors render without baked orange/grey
 tint bias while preserving anatomical shading and seams under studio lighting. Furniture and windowed walls are original,
-simple procedural references, not architectural CAD. No collision/ground snap.
+simple procedural references, not architectural CAD. Presets, proportion changes
+and **Snap to floor** ground the actual deformed mesh; there is no furniture collision.
 The window openings are real geometry gaps; no external textures.
 
 WebGL2 is required by the current Three.js renderer; software GPU rendering can

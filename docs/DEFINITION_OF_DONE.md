@@ -104,7 +104,7 @@ Unchecked items are not completion claims. Evidence is recorded after execution.
 Historical rows describe the checks actually executed, not a guarantee of
 uncovered workflows: the Nov 19 report exposed a missing point-selection test
 despite earlier numeric/preset posing checks. Known scope limits remain
-intentional: FK only, no collision/ground snap, source Superhero proportions,
+intentional at that historical milestone: FK only, no collision/ground snap, source Superhero proportions,
 roughly 31.5 MB initial assets, artistic raster bokeh rather than calibrated
 f-stops, browser-local storage requiring portable backups, and desktop-first UI.
 The production bundle emits Vite's non-failing size advisory; no type/build/test
@@ -298,3 +298,71 @@ failures are hidden by that warning.
   orbit/pan/zoom + Undo/Redo + reload, Export/Import `.pose.json` round-trip, and
   `16/16` `runPosingSmoke` FK gestures passed with zero errors, followed by live
   GitHub Pages verification.
+
+## Final milestone: proportions and authoritative deformation (2026-11-19)
+
+The final release retains true skin/outfit tinting, Camera View orbit/pan/zoom,
+appearance-free pose JSON import/export, all five NPR modes (including hand-drawn
+Illustration and transparent Outline PNG), Shift-click/Ctrl-drag multi-selection,
+group Move/Rotate/Flip, individual X/Y/Z flips, full pose transfer and the
+17-joint Skeleton Tree for partial copies.
+
+Newly integrated capabilities:
+
+- Nine proportion archetypes: Realistic, Heroic, Lean, Slender, Busty, Chubby,
+  Fat, Obese and Chibi. Choose before adding or switch any existing figure;
+  pose/colors survive, hair/eyes scale with the skull, and the actual deformed
+  surface is re-grounded. Changes are undoable and immediately autosaved.
+- Three-layer pose-change-only deformation: coupled clavicle/spine/toe helpers;
+  continuous axial twist, hybrid DQS and welded tangent Delta Mush; muscle bulges,
+  crease-bisector contact/lateral squish and body-scaled capsule pushout.
+- Anatomical joint limits default on, with an explicit free-rotation switch.
+  Semantic XYZ readback compensates helper rotations so FK drags and pose files
+  do not accumulate helper-bone drift.
+- CPU-authoritative main-body vertices and welded normals feed the existing
+  skin/outfit shader, NPR normal/depth pass, shadows, Bokeh depth, picking and
+  grounding. Identity pass-through skinning avoids applying the pose twice;
+  eyes/brows/hair/markers retain the live skeleton. World reflection/nonuniform
+  scale is excluded from the rigid character-space solve.
+- Additive v1 scene fields default legacy `bodyType` to `heroic` and
+  `anatomicalLimits` to `true`; malformed options reject. Pose JSON excludes both.
+  Existing IndexedDB data is neither cleared nor migrated destructively.
+
+Executed local evidence:
+
+- Full Vitest suite: **101 passing tests in 10 files**, including both standalone
+  modules, integration, storage and NPR tests; strict production build passes.
+  Integration cases cover all nine archetypes on both source rigs, signed-root
+  shader/CPU pass-through agreement, semantic FK recovery, limits, hair swaps,
+  unchanged-pose caching and exact return-to-Heroic restoration.
+- Inspected **18 actual viewport screenshots**: every archetype in Realistic and
+  Illustration, with female skin `#ffdecc` and outfit `#e63946`. Hair head-scale
+  matched exactly (Chibi **1.78**); max CPU-versus-buffer vertex error was
+  **less than 8e-8 m**; standing ground error was **less than 3e-7 m**.
+- Inspected Seated/Kneeling/Crouch/Reach on Realistic/Busty/Obese/Chibi:
+  **16 screenshots**, every deformed body grounded within **0.00005 m** and
+  welded normals within **5e-8** of unit length. These are analytical contact
+  corrections, not a guarantee of collision-free impossible free poses.
+- Actual 180-degree wrist twist and 135-degree elbow flexion; default anatomical
+  bounds clamp a backwards elbow to 2 degrees, while free mode allows 60.
+- Real-pointer ring gestures for head, chest, shoulder, elbow, wrist and knee,
+  plus head/elbow on a mirrored Chibi: skin moved, camera/other figure/opposite
+  limb stayed isolated, and single-step Undo/Redo restored geometry.
+- Added Chibi directly, checked grounded geometry, and undid in one step.
+  A full reload exactly restored the scene, Chibi archetype, disabled limits,
+  180-degree wrist twist, free elbow and swapped Twin buns at head scale 1.78;
+  zero console/network errors during the reload.
+- All 12 built-in animation cycles sampled and committed on Obese: preview and
+  committed vertex buffers matched exactly, with no floor penetration beyond
+  0.00005 m. Existing airborne lift in jog, sprint and jump was preserved.
+- X/Y/Z reflections retained CPU/shader vertex agreement within **7e-8 m**.
+  Enabled-DOF transparent Outline export encoded **1600 x 1067 RGBA PNG** with
+  both transparent pixels and visible ink.
+- Repeated the Batch 2A real-pointer smoke against deformed figures: Outliner
+  and viewport Shift-selection, Editor/Camera marquees, group Move/Rotate and
+  all-axis flips, full paste and Left arm + Head partial paste all passed,
+  including atomic Undo/Redo and preservation of the other 13 joints.
+
+Screenshots are session evidence outside the repository, not production assets.
+Remaining boundaries: static FK/frame extraction rather than simulation, no IK,
+finger articulation, furniture/inter-character collisions, or medical guarantees.

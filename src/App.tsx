@@ -23,6 +23,8 @@ import {
 } from './components/ui';
 import { Studio } from './engine';
 import { loadExternalFigures } from './external-rig';
+import { BODY_TYPES, DEFAULT_BODY_TYPE, isBodyTypeId, type BodyTypeId } from './bodyProportions';
+import { clampPoseToAnatomicalLimits } from './skinDeformer';
 import { defaultHairStyle, HAIR_STYLE_LABELS, HAIR_STYLES } from './hair';
 import {
   applyPose,
@@ -82,6 +84,7 @@ const ANIM_CATEGORIES: readonly AnimationCycleCategory[] = [
   'Stealth & Ground',
   'Action & Athletic',
 ];
+const BODY_OPTIONS: SelectOption[] = BODY_TYPES.map(type => ({ value: type.id, label: type.label, meta: type.description }));
 
 const SHADING_ITEMS = RENDER_MODES.map((value, index) => ({
   value, label: value[0].toUpperCase() + value.slice(1),
@@ -179,6 +182,7 @@ export function App() {
   const [animBusy, setAnimBusy] = useState(false);
   const [groundAnim, setGroundAnim] = useState(true);
   const [animPreviewing, setAnimPreviewing] = useState(false);
+  const [newBodyType, setNewBodyType] = useState<BodyTypeId>(DEFAULT_BODY_TYPE);
   const host = useRef<HTMLDivElement>(null),
     engine = useRef<Studio | null>(null),
     file = useRef<HTMLInputElement>(null),
@@ -232,6 +236,15 @@ export function App() {
 
   const commit = useCallback(
     (next: SceneState, viewPatch?: Partial<WorkingViewState>) => {
+      for (const figure of next.items) {
+        if (!isBody(figure.kind) || !figure.pose) continue;
+        const previous = current.current.items.find(i => i.id === figure.id);
+        const pose = figure.pose, previousPose = previous?.pose;
+        const poseChanged = !previousPose || JOINTS.some(j => pose[j].some((v, axis) => v !== previousPose[j][axis]));
+        if (poseChanged || (figure.anatomicalLimits !== false && previous?.anatomicalLimits === false)) {
+          figure.pose = clampPoseToAnatomicalLimits(figure.pose, figure.anatomicalLimits === false ? 'free' : 'anatomical');
+        }
+      }
       past.current.push(clone(current.current));
       if (past.current.length > 100) past.current.shift();
       future.current = [];
@@ -339,7 +352,14 @@ export function App() {
   const editItem = (patch: Partial<Item>) =>
     update(next => {
       const i = next.items.find(i => i.id === selected);
-      if (i) Object.assign(i, patch);
+      if (i) {
+        Object.assign(i, patch);
+        if (isBody(i.kind) && i.pose && (patch.bodyType !== undefined || patch.anatomicalLimits !== undefined)) {
+          i.pose = clampPoseToAnatomicalLimits(i.pose, i.anatomicalLimits === false ? 'free' : 'anatomical');
+          const y = engine.current?.groundPoseY(i.id, i.pose, i);
+          if (y !== null && y !== undefined) i.position[1] = y;
+        }
+      }
     });
   const editCamera = (patch: Partial<SceneState['camera']>) => update(next => Object.assign(next.camera, patch));
   const renderStyle = { ...DEFAULT_RENDER_STYLE, ...doc.renderStyle };
@@ -871,7 +891,7 @@ export function App() {
       report(new Error('Scene limit: 8 lights.'));
       return;
     }
-    const added = createItem(kind, doc.items.filter(i => i.kind === kind).length);
+    const added = createItem(kind, doc.items.filter(i => i.kind === kind).length, newBodyType);
     const next = clone(current.current);
     next.items.push(added);
     select(added.id, null);
@@ -1118,6 +1138,10 @@ export function App() {
           <div className="scroll">
             <section>
               <h3>Add to stage</h3>
+              <div className="select-field">
+                <span className="field-label">New figure proportion</span>
+                <SelectDropdown ariaLabel="New figure proportion" value={newBodyType} options={BODY_OPTIONS} onChange={value => { if (isBodyTypeId(value)) setNewBodyType(value); }} />
+              </div>
               <div className="two">
                 <button type="button" onClick={() => add('male')}>
                   {Icons.plus} Male
@@ -1317,6 +1341,10 @@ export function App() {
                       />
                       {isBody(item.kind) && (
                         <>
+                          <div className="select-field">
+                            <span className="field-label">Body proportion</span>
+                            <SelectDropdown ariaLabel="Body proportion" value={item.bodyType ?? DEFAULT_BODY_TYPE} options={BODY_OPTIONS} onChange={value => { if (isBodyTypeId(value)) editItem({ bodyType: value }); }} />
+                          </div>
                           <ColorField
                             label="Outfit / dress color"
                             value={item.outfitColor ?? defaultOutfitColor(item.kind)}
@@ -1350,6 +1378,7 @@ export function App() {
                       <p className="muted">
                         Click any gold marker on the figure (turns coral) and drag its rotation rings, or pick a joint below.
                       </p>
+                      <SwitchRow label="Anatomical joint limits" description="Constrain rotation to anatomical ranges; switch off for free posing" checked={item.anatomicalLimits !== false} onChange={anatomicalLimits => editItem({ anatomicalLimits })} />
                       <div className="two">
                         <button type="button" onClick={() => copyNodesToClipboard(JOINTS)}>Copy Pose</button>
                         <button type="button" disabled={!poseClipboard} onClick={pasteClipboard}>{!poseClipboard || poseClipboard.joints.length === 17 ? 'Paste Pose' : 'Paste Partial Pose'}</button>

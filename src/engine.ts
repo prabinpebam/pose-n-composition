@@ -7,6 +7,7 @@ import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { getJointRotation, setFigurePose, type Figure } from './rig';
 import { makeExternalFigure, setFigureColors, setFigureHairStyle } from './external-rig';
+import { DEFAULT_BODY_TYPE } from './bodyProportions';
 import { makeProp } from './props';
 import { pickJointMarker, sizeJointMarker } from './joint-markers';
 import { HELPER_LAYER, STAGE_LAYER, NprInkPass, StudioShadingController, needsInk, paperColor, setLayerRecursive } from './npr';
@@ -123,6 +124,14 @@ export class Studio {
           if (!entry) continue;
           entry.root.position.fromArray(item.position); entry.root.rotation.set(...item.rotation); entry.root.scale.fromArray(item.scale);
           if (entry.target && item.target) entry.target.position.fromArray(item.target);
+        }
+      }
+      if (this.joint && this.selected) {
+        const entry = this.entries.get(this.selected), item = this.state?.items.find(i => i.id === this.selected);
+        if (entry?.figure && item?.pose) {
+          const pose = clone(item.pose);
+          pose[this.joint] = getJointRotation(entry.figure, this.joint);
+          setFigurePose(entry.figure, pose);
         }
       }
       this.transformChanged = true;
@@ -413,6 +422,7 @@ export class Studio {
       }
       entry.root.position.fromArray(item.position); entry.root.rotation.set(...item.rotation); entry.root.scale.fromArray(item.scale);
       if (entry.figure && item.pose && isBody(item.kind)) {
+        entry.figure.deformation = { bodyType: item.bodyType ?? DEFAULT_BODY_TYPE, limitMode: item.anatomicalLimits === false ? 'free' : 'anatomical' };
         setFigureHairStyle(entry.figure, item.kind, item.hairStyle, item.hairColor ?? DEFAULT_HAIR_COLOR);
         setFigurePose(entry.figure, item.pose);
         setFigureColors(
@@ -584,28 +594,28 @@ export class Studio {
   getFigure(id: string): Figure | null {
     return this.entries.get(id)?.figure ?? null;
   }
-  groundPoseY(id: string, candidatePose?: Pose): number | null {
+  groundPoseY(id: string, candidatePose?: Pose, settings?: Pick<Item, 'bodyType' | 'anatomicalLimits'>): number | null {
     const entry = this.entries.get(id);
     const stateItem = this.state?.items.find(i => i.id === id);
     if (!entry?.figure || !stateItem?.pose) return null;
-    const prevY = entry.root.position.y;
-    entry.root.position.y = 0;
-    setFigurePose(entry.figure, candidatePose ?? stateItem.pose);
-    entry.root.updateMatrixWorld(true);
-    const skin = entry.figure.skin;
-    skin.skeleton.update();
-    const pos = skin.geometry.getAttribute('position');
-    const vertex = new T.Vector3();
-    let minY = Infinity;
-    for (let i = 0; i < pos.count; i++) {
-      const y = skin.getVertexPosition(i, vertex).applyMatrix4(skin.matrixWorld).y;
-      if (y < minY) minY = y;
+    const prevY = entry.root.position.y, previous = entry.figure.deformation;
+    try {
+      if (settings) entry.figure.deformation = { bodyType: settings.bodyType ?? DEFAULT_BODY_TYPE, limitMode: settings.anatomicalLimits === false ? 'free' : 'anatomical' };
+      entry.root.position.y = 0;
+      setFigurePose(entry.figure, candidatePose ?? stateItem.pose);
+      const skin = entry.figure.skin, pos = skin.geometry.getAttribute('position'), vertex = new T.Vector3();
+      let minY = Infinity;
+      for (let i = 0; i < pos.count; i++) {
+        const y = skin.getVertexPosition(i, vertex).applyMatrix4(skin.matrixWorld).y;
+        if (y < minY) minY = y;
+      }
+      if (!Number.isFinite(minY)) throw new Error('Cannot ground the figure: deformed bounds are invalid.');
+      return Number((-minY).toFixed(4));
+    } finally {
+      entry.root.position.y = prevY;
+      entry.figure.deformation = previous;
+      setFigurePose(entry.figure, stateItem.pose);
     }
-    entry.root.position.y = prevY;
-    setFigurePose(entry.figure, stateItem.pose);
-    entry.root.updateMatrixWorld(true);
-    skin.skeleton.update();
-    return Number.isFinite(minY) ? Number((-minY).toFixed(4)) : null;
   }
   previewFigurePose(id: string, pose: Pose, rootY?: number): void {
     const entry = this.entries.get(id);

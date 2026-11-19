@@ -186,6 +186,9 @@ describe('IndexedDB immediate working-draft autosave and reload restoration', ()
     scene.items[0]!.outfitColor = '#1e6b52';
     scene.items[0]!.hairStyle = 'buns';
     scene.items[0]!.hairColor = '#cc4422';
+    scene.items[0]!.bodyType = 'chibi';
+    scene.items[0]!.anatomicalLimits = false;
+    scene.items[1]!.bodyType = 'obese';
     scene.items[1]!.color = '#f5d0ba';
     scene.items[1]!.outfitColor = '#9b2c62';
     scene.items[1]!.pose = preset('Heroic');

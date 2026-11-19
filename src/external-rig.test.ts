@@ -13,6 +13,7 @@ import {
 import { HAIR_STYLES, registerHairTemplate, type HairAssetId } from './hair';
 import { getJointRotation, setFigurePose, type Figure } from './rig';
 import { JOINTS, neutralPose, PRESETS, preset, type Body } from './model';
+import { BODY_TYPE_IDS } from './bodyProportions';
 
 interface FixtureGLTF {
   buffers: { uri: string }[];
@@ -53,6 +54,57 @@ function vertexWorld(f: Figure, skin: T.SkinnedMesh): T.Vector3 {
   return skin.localToWorld(skin.applyBoneTransform(0, p));
 }
 describe.each(['male', 'female'] as const)('ready-made %s rig', body => {
+  it('integrates every archetype with authoritative pass-through skinning, reflected roots and idle caching', () => {
+    const f = make(body), pose = preset('Kneeling');
+    f.deformation = { bodyType: 'heroic', limitMode: 'anatomical' };
+    for (const bodyType of BODY_TYPE_IDS) {
+      f.deformation.bodyType = bodyType;
+      f.root.position.set(1, 0.3, -2); f.root.rotation.set(0.1, 0.5, 0.2); f.root.scale.set(-1.2, 0.9, 1.1);
+      setFigurePose(f, pose);
+      const positions = f.skin.geometry.getAttribute('position');
+      if (!(positions instanceof T.BufferAttribute)) throw new Error('Expected non-interleaved deformed positions');
+      for (let i = 0; i < positions.count; i += 97) {
+        expect(f.skin.getVertexPosition(i, new T.Vector3()).distanceTo(new T.Vector3().fromBufferAttribute(positions, i))).toBeLessThan(1e-5);
+      }
+      for (let b = 0; b < f.skin.skeleton.bones.length; b++) {
+        const shaderMatrix = f.skin.bindMatrixInverse.clone()
+          .multiply(new T.Matrix4().fromArray(f.skin.skeleton.boneMatrices, b * 16)).multiply(f.skin.bindMatrix);
+        shaderMatrix.elements.forEach((v, i) => expect(v).toBeCloseTo(i % 5 === 0 ? 1 : 0, 4));
+      }
+      const version = positions.version;
+      setFigurePose(f, pose);
+      expect(positions.version).toBe(version);
+    }
+    f.deformation.bodyType = 'heroic';
+    setFigurePose(f, pose);
+    const fresh = make(body);
+    fresh.deformation = { bodyType: 'heroic', limitMode: 'anatomical' };
+    setFigurePose(fresh, pose);
+    expect(Array.from(f.skin.geometry.getAttribute('position').array)).toEqual(Array.from(fresh.skin.geometry.getAttribute('position').array));
+  });
+  it('round-trips coupled semantic joints and recovers a real local FK delta without helper drift', () => {
+    const f = make(body);
+    f.deformation = { bodyType: 'chibi', limitMode: 'anatomical' };
+    for (const name of PRESETS) {
+      const pose = preset(name); setFigurePose(f, pose);
+      for (const j of JOINTS) {
+        expect(new T.Quaternion().setFromEuler(new T.Euler(...getJointRotation(f, j))).angleTo(new T.Quaternion().setFromEuler(new T.Euler(...pose[j])))).toBeLessThan(1e-6);
+      }
+    }
+    const pose = preset('Reach'), basis = f.rotationBases.chest;
+    const delta = new T.Quaternion().setFromEuler(new T.Euler(0.1, -0.05, 0.04));
+    f.bones.chest.quaternion.multiply(basis.clone().multiply(delta).multiply(basis.clone().invert()));
+    const actual = new T.Quaternion().setFromEuler(new T.Euler(...getJointRotation(f, 'chest')));
+    expect(actual.angleTo(new T.Quaternion().setFromEuler(new T.Euler(...pose.chest)).multiply(delta))).toBeLessThan(1e-6);
+    setFigureHairStyle(f, body, body === 'male' ? 'partedBeard' : 'buns');
+    const scalp = f.root.getObjectByName('Scalp hair')!;
+    expect(scalp.scale.x).toBe(f.root.userData.bodyProportionHeadScale);
+    const broken = neutralPose(); broken.leftElbow[0] = 1;
+    setFigurePose(f, broken);
+    expect(getJointRotation(f, 'leftElbow')[0]).toBeCloseTo(T.MathUtils.degToRad(2));
+    f.deformation.limitMode = 'free'; setFigurePose(f, broken);
+    expect(getJointRotation(f, 'leftElbow')[0]).toBeCloseTo(1);
+  });
   it('uses the real source skeleton and three independently poseable skinned surfaces', () => {
     const f = make(body), bounds = new T.Box3().setFromObject(f.skin);
     expect(f.skins).toHaveLength(3);

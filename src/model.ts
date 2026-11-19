@@ -1,4 +1,5 @@
 import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
+import { DEFAULT_BODY_TYPE, isBodyTypeId, type BodyTypeId } from './bodyProportions';
 
 export type Vec3 = [number, number, number];
 export const RENDER_MODES = ['realistic', 'illustration', 'outline', 'clay', 'flat'] as const;
@@ -35,6 +36,7 @@ export type PropKind = typeof PROP_KINDS[number];
 export interface Item {
   id: string; name: string; kind: Body | PropKind | 'light'; color: string;
   position: Vec3; rotation: Vec3; scale: Vec3; pose?: Pose; outfitColor?: string; hairColor?: string; hairStyle?: HairStyleId; intensity?: number; target?: Vec3;
+  bodyType?: BodyTypeId; anatomicalLimits?: boolean;
 }
 export interface CameraState {
   position: Vec3; target: Vec3; focalLength: number; near: number; far: number;
@@ -225,7 +227,7 @@ export function preset(name: PresetName): Pose {
   }
   return p;
 }
-export function createItem(kind: Item['kind'], index = 0): Item {
+export function createItem(kind: Item['kind'], index = 0, bodyType: BodyTypeId = DEFAULT_BODY_TYPE): Item {
   const body = isBody(kind);
   return {
     id: crypto.randomUUID(), name: `${kind[0].toUpperCase()}${kind.slice(1)} ${index + 1}`, kind,
@@ -234,6 +236,8 @@ export function createItem(kind: Item['kind'], index = 0): Item {
     ...(body
       ? {
           pose: neutralPose(),
+          bodyType,
+          anatomicalLimits: true,
           outfitColor: defaultOutfitColor(kind),
           hairColor: DEFAULT_HAIR_COLOR,
           hairStyle: (kind === 'female' ? 'long' : 'parted') as HairStyleId,
@@ -288,6 +292,8 @@ export function validatePortable(value: unknown): Portable {
     const item: Item = { id, kind, name: text(i.name), color: color(i.color), position: vec(i.position), rotation: vec(i.rotation, -Math.PI * 2, Math.PI * 2), scale };
     if (isBody(kind)) {
       item.pose = validatePose(i.pose);
+      item.bodyType = i.bodyType === undefined ? DEFAULT_BODY_TYPE : isBodyTypeId(i.bodyType) ? i.bodyType : fail('unknown body proportion');
+      item.anatomicalLimits = i.anatomicalLimits === undefined ? true : typeof i.anatomicalLimits === 'boolean' ? i.anatomicalLimits : fail('anatomical limits must be boolean');
       item.outfitColor = i.outfitColor === undefined ? defaultOutfitColor(kind) : color(i.outfitColor);
       item.hairColor = i.hairColor === undefined ? DEFAULT_HAIR_COLOR : color(i.hairColor);
       item.hairStyle = i.hairStyle === undefined ? (kind === 'female' ? 'long' : 'parted') : enumValue(i.hairStyle, HAIR_STYLE_IDS);

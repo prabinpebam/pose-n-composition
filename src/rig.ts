@@ -2,6 +2,8 @@ import * as T from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { JOINTS, type Body, type Joint, type Pose } from './model';
 import type { HairStyle } from './hair';
+import type { BodyTypeId } from './bodyProportions';
+import { applyExtremePoseDeformer, clampPoseToAnatomicalLimits, type PoseLimitMode } from './skinDeformer';
 
 export interface Figure {
   body?: Body;
@@ -9,7 +11,9 @@ export interface Figure {
   restRotations: Record<Joint, T.Quaternion>; rotationBases: Record<Joint, T.Quaternion>;
   tintMaterials: T.MeshStandardMaterial[]; outfitColorUniforms: Array<{ value: T.Color }>; hairMaterials: T.MeshStandardMaterial[];
   headFromNative?: T.Matrix4; hairStyle?: HairStyle;
+  deformation?: { bodyType: BodyTypeId; limitMode: PoseLimitMode };
 }
+const semanticPoses = new WeakMap<Figure, { pose: Pose; rotations: Record<Joint, T.Quaternion>; key: string }>();
 // Legacy regression fixture; the live studio exclusively loads the CC0 source rigs.
 export function makeFigure(body: Body, color: string): Figure {
   const female = body === 'female';
@@ -124,6 +128,30 @@ export function makeFigure(body: Body, color: string): Figure {
   return { root, skin, skins: [skin], bones, restRotations: identityMap(), rotationBases: identityMap(), tintMaterials: [material], outfitColorUniforms: [], hairMaterials: [] };
 }
 export function setFigurePose(figure: Figure, pose: Pose): void {
+  if (figure.deformation) {
+    const effective = clampPoseToAnatomicalLimits(pose, figure.deformation.limitMode);
+    const key = JSON.stringify([figure.deformation, effective]);
+    const previous = semanticPoses.get(figure);
+    if (previous?.key !== key || JOINTS.some(j => !figure.bones[j].quaternion.equals(previous.rotations[j]))) {
+      const { root } = figure;
+      const position = root.position.clone(), rotation = root.quaternion.clone(), scale = root.scale.clone();
+      // Solve in character space: world reflections/nonuniform scales must not enter the rigid DQS solve.
+      root.position.set(0, 0, 0); root.quaternion.identity(); root.scale.set(1, 1, 1);
+      try {
+        applyExtremePoseDeformer(figure, effective, figure.deformation);
+      } finally {
+        root.position.copy(position); root.quaternion.copy(rotation); root.scale.copy(scale);
+        root.updateMatrixWorld(true);
+      }
+      semanticPoses.set(figure, {
+        pose: effective, key,
+        rotations: Object.fromEntries(JOINTS.map(j => [j, figure.bones[j].quaternion.clone()])) as Record<Joint, T.Quaternion>,
+      });
+    }
+    figure.root.updateMatrixWorld(true);
+    figure.skins.forEach(skin => { skin.skeleton.update(); skin.computeBoundingBox(); skin.computeBoundingSphere(); });
+    return;
+  }
   JOINTS.forEach(j => {
     const basis = figure.rotationBases[j];
     const delta = new T.Quaternion().setFromEuler(new T.Euler(...pose[j]));
@@ -136,6 +164,15 @@ export function setFigurePose(figure: Figure, pose: Pose): void {
 }
 export function getJointRotation(figure: Figure, joint: Joint): [number, number, number] {
   const basis = figure.rotationBases[joint];
+  const reference = figure.deformation ? semanticPoses.get(figure) : undefined;
+  if (reference) {
+    // Coupled helper bones compensate semantic joints; measure only the user's new FK delta.
+    const localDelta = reference.rotations[joint].clone().invert().multiply(figure.bones[joint].quaternion);
+    const semantic = new T.Quaternion().setFromEuler(new T.Euler(...reference.pose[joint]))
+      .multiply(basis.clone().invert()).multiply(localDelta).multiply(basis);
+    const euler = new T.Euler().setFromQuaternion(semantic, 'XYZ');
+    return [euler.x, euler.y, euler.z];
+  }
   const delta = figure.restRotations[joint].clone().invert().multiply(figure.bones[joint].quaternion);
   const semantic = basis.clone().invert().multiply(delta).multiply(basis);
   const euler = new T.Euler().setFromQuaternion(semantic, 'XYZ');
