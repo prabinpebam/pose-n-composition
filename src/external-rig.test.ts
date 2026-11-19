@@ -3,7 +3,8 @@ import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as T from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { buildExternalFigure, SOURCE_BONES } from './external-rig';
+import { buildExternalFigure, setFigureHairStyle, SOURCE_BONES } from './external-rig';
+import { HAIR_STYLES, registerHairTemplate, type HairAssetId } from './hair';
 import { getJointRotation, setFigurePose, type Figure } from './rig';
 import { JOINTS, neutralPose, PRESETS, preset, type Body } from './model';
 
@@ -28,6 +29,15 @@ beforeAll(async () => {
     delete source.images; delete source.textures; delete source.materials;
     source.meshes.forEach(m => m.primitives.forEach(p => { delete p.material; }));
     templates.set(body, (await new GLTFLoader().parseAsync(JSON.stringify(source), '')).scene);
+  }
+  const hairIds: HairAssetId[] = ['SimpleParted', 'Long', 'Buns', 'Buzzed', 'BuzzedFemale', 'Beard'];
+  for (const id of hairIds) {
+    const source = JSON.parse(readFileSync(resolve(directory, `Hair_${id}.gltf`), 'utf8')) as FixtureGLTF;
+    source.buffers.forEach(b => { b.uri = `data:application/octet-stream;base64,${readFileSync(resolve(directory, b.uri)).toString('base64')}`; });
+    delete source.images; delete source.textures; delete source.materials;
+    source.meshes.forEach(m => m.primitives.forEach(p => { delete p.material; }));
+    const parsed = await new GLTFLoader().parseAsync(JSON.stringify(source), '');
+    registerHairTemplate(id, parsed.scene);
   }
 });
 afterAll(() => vi.unstubAllGlobals());
@@ -91,10 +101,11 @@ describe.each(['male', 'female'] as const)('ready-made %s rig', body => {
     expect(scalp.parent).toBe(f.bones.head);
     const bounds = new T.Box3().setFromObject(scalp), skull = new T.Box3().setFromObject(f.skin);
     expect(bounds.max.y - skull.max.y).toBeGreaterThan(0.004);
-    expect(bounds.max.y - skull.max.y).toBeLessThan(0.025);
+    expect(bounds.max.y - skull.max.y).toBeLessThan(0.06);
     expect(bounds.max.x - bounds.min.x).toBeGreaterThan(0.12);
-    expect(bounds.min.y).toBeGreaterThan(skull.max.y - 0.3);
-    const localPoint = new T.Vector3().fromBufferAttribute(scalp.geometry.getAttribute('position'), 500);
+    expect(bounds.min.y).toBeGreaterThan(skull.max.y - 0.45);
+    const sampleIdx = Math.min(200, scalp.geometry.getAttribute('position').count - 1);
+    const localPoint = new T.Vector3().fromBufferAttribute(scalp.geometry.getAttribute('position'), sampleIdx);
     const before = scalp.localToWorld(localPoint.clone());
     const headLocal = f.bones.head.worldToLocal(before.clone());
     const brows = f.skins.find(s => s.name === 'Eyebrows')!, eyes = f.skins.find(s => s.name === 'Eyes')!;

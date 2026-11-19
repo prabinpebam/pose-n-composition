@@ -56,9 +56,10 @@ Entry points:
 
 Both are **glTF 2.0**, exported by Khronos glTF Blender I/O v4.3.47, with separate
 binary buffers and PNG textures. The original glTF and binary files are
-unchanged. Only the two selected models, their required dependencies and the
-exact license are shipped: **17 files, 31,487,709 bytes**. The complete archive,
-FBX alternatives, hairstyles and unused textures are not shipped.
+unchanged. Alongside the two base bodies, the six official sculpted hairstyles
+from the same CC0 `Universal Base Characters[Standard].zip` archive
+(`Universal Base Characters[Standard]/Hairstyles/glTF/`) are shipped in the same
+folder so they share `T_Hair_1_Albedo.png` and `T_Hair_1_Normal_png.png`:
 
 | File | Bytes | SHA-256 |
 | --- | ---: | --- |
@@ -66,6 +67,18 @@ FBX alternatives, hairstyles and unused textures are not shipped.
 | `Superhero_Male_FullBody.bin` | 720,076 | `459003F9745853AE562A85506A2B94DD56515C1F37728F9FA3D2CE1A3E4CD92F` |
 | `Superhero_Female_FullBody.gltf` | 31,656 | `ADEDF28000A0716F689B009A70314506FC62F827498F77BA852ACB5610F3F3F4` |
 | `Superhero_Female_FullBody.bin` | 990,808 | `3A8220A485B33D05D879115A50697728B45A151781106033AFB8B8C243FCA208` |
+| `Hair_SimpleParted.gltf` | 2,010 | `CE6C666D00BCCA2BAA0C58D0442505F90F8FEFF952592EFFC4697A2341E9E56D` |
+| `Hair_SimpleParted.bin` | 32,032 | `57C6359703A37E346EE38A9C7BA55C8DEE761C0A02DA99847D06F5A91728F3CC` |
+| `Hair_Long.gltf` | 2,056 | `94500E2E37E09EFC8B8B920B8C6437EF1C76CA35863992B82D0D5DE6E77122E9` |
+| `Hair_Long.bin` | 115,996 | `13996DA35C7AFBF8CB5097DA37207EE5B7C2E2904D4AB9E2ACE9843030FFF8D5` |
+| `Hair_Buns.gltf` | 2,243 | `2BB3593575E21C9AF39A53E48C42C1314B0A894E9577F3F14ABFFCB145CD56C5` |
+| `Hair_Buns.bin` | 131,768 | `4F6D4C010201278483DA8D6D46EC40E3BEB8D9E679EC2139BED216C561BCCD38` |
+| `Hair_Buzzed.gltf` | 2,006 | `43752A4C8F2464EB2494A8AB179BF7AD237638A3D47FB3DE0A38361DB40E1451` |
+| `Hair_Buzzed.bin` | 19,892 | `89992FC7A5319DF6F2908E44A3B694329FAC4B500629A573224702E5FDD16F77` |
+| `Hair_BuzzedFemale.gltf` | 2,191 | `3F30E5A7B0FC6D04D2980A4E937CC5E4B03CA923C9247869168EF13E1B40B747` |
+| `Hair_BuzzedFemale.bin` | 19,892 | `6F1AB9BC997B01311DC0635EE165EDFE27BD9715222718BC4CF4265E10B933AF` |
+| `Hair_Beard.gltf` | 2,005 | `C91EF54606AAD25A9D1191DEABA90CB411C0067D8CEF262B2F4819F242E5B365` |
+| `Hair_Beard.bin` | 25,276 | `781CF9B719D75A9F8D73881D2CA0713FE580D774EDC96ADADED392AAD37A72B7` |
 | `License_Standard.txt` | 806 | `0F4BEAF0FE360A7732E58BBE3DBF60A2422367FBEA60CB9EA4ADD968F383268E` |
 
 ### Upstream texture filename repairs
@@ -83,24 +96,45 @@ No pixel edits, geometry changes, invented textures, glTF rewrites or
 re-exports were needed. All other shipped dependency filenames match the archive
 exactly.
 
-### Runtime hair accessories and facial hair color
+### Sculpted CC0 hairstyles and facial hair color
 
-The application adds **original MIT-licensed procedural scalp hair**, generated
-in `src/external-rig.ts`; it is not one of the archive's unshipped hairstyles.
-Rays fit a short cap to triangles strongly weighted to the actual source Head
-bone, with curved raised strands and a fuller female nape. The complete accessory
-is parented to Head while preserving its neutral world transform, so the source
-bind orientation, head/neck posing and logical root transformations remain intact.
-No new downloads, textures or third-party licenses are required.
+The application loads the six sculpted CC0 hairstyle meshes from the same
+`Universal Base Characters[Standard]` archive (`Hair_SimpleParted`, `Hair_Long`,
+`Hair_Buns`, `Hair_Buzzed`, `Hair_BuzzedFemale`, and `Hair_Beard`) in
+`src/hair.ts` and attaches the selected hairstyle directly to the figure's
+`Head` bone (`Scalp hair`) using the exact inverse bind-pose transform plus a
+crown-aligned cross-body skull adapter so every hairstyle (`Side parted`,
+`Long waves`, `Twin buns`, `Short crop`, `Parted + beard`, or `None (bald)`)
+fits both male and female heads cleanly.
 
-The source mesh named **Eyebrows includes modeled eyelashes as well as brows**:
-both models have paired geometry above the eyes and lash components along the
-eyelids. That whole original skinned surface is retained, not replaced. Its
-runtime material clone drops the baked base-color map so the user's selected
-hair color can tint scalp, brows and lashes consistently; the original distributed
-files and shared source templates remain unchanged. Eyes keep their own material.
-Each instance owns its hair geometries/materials, separate from body tint and
-other figures. This is basic short hair, not a hairstyle editor or simulated hair.
+Because `T_Hair_1_Albedo.png` is authored as dark brown (`~#4c362c`), `src/hair.ts`
+normalizes its luminance at runtime into a grayscale strand-detail map (`158..255`)
+while retaining `T_Hair_1_Normal_png.png`, allowing any user-selected `hairColor`
+(from platinum blonde to black or vivid tints) to color scalp locks, eyebrows,
+and modeled eyelashes consistently without losing sculpted strand highlights.
+
+## Built-in animation library for pose extraction
+
+To let users scrub real motion-capture/keyframed animation cycles and extract any
+frame as an editable static 17-joint pose—without redistributing raw Adobe Mixamo
+downloads (which Adobe's Mixamo FAQ/Terms prohibit redistributing in open-source
+repositories)—the repository ships **Quaternius — Universal Animation Library
+[Standard]** under its archive-included **CC0 1.0 Universal** dedication, while
+supporting local in-browser import of user-downloaded Mixamo `.fbx` / `.glb` /
+`.gltf` files via `loadUserAnimationFile` (`src/animationPoseExtractor.ts`):
+
+- [Official pack page](https://quaternius.com/packs/universalanimationlibrary.html).
+- Original archive: `Universal Animation Library[Standard].zip` (**15,904,933 bytes**,
+  SHA-256 `CC73FC4E495B82958207316596317A38065BDE1027937452DA537724` — see
+  [RESEARCH.md](./RESEARCH.md) Section 14.2).
+- Shipped directory:
+  [public/models/animations/quaternius-ual1/](../public/models/animations/quaternius-ual1/).
+
+| File | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `UAL1_Standard.glb` | 7,618,436 | `69591853D817488EDAA8FD9BF8FC1D821EAEAF789F8627B3CD23B41C4ED67997` |
+| `License.txt` | 332 | `6D01F55C6E4C49A2C9963E147E561945AE2C83958C8CA667D90A6BFFDBFAC061` |
+| `README.txt` | 702 | `CCD02718886B5A57F10F0A8911A38CFE10C36880E1D6DFA3445923FBA32D2A72` |
 
 ## Observed rig and coordinates
 

@@ -37,13 +37,28 @@ export async function runPosingSmoke(page, {
     let ring = null;
     if (s.joint === j) {
       const gizmo = s.transform.getHelper().children[0];
-      for (const axis of ['Z', 'X', 'Y', 'E']) {
-        const mesh = gizmo.gizmo.rotate.children.find(c => c.name === axis && c.visible);
-        if (!mesh) continue;
+      const candidates = ['Z', 'X', 'Y', 'E']
+        .map(axis => {
+          const mesh = gizmo.gizmo.rotate.children.find(c => c.name === axis && c.visible);
+          if (!mesh) return null;
+          const positions = mesh.geometry.getAttribute('position');
+          const radii = [];
+          for (let i = 0; i < positions.count; i += Math.max(1, Math.floor(positions.count / 16))) {
+            const world = mesh.localToWorld(mesh.position.clone().fromBufferAttribute(positions, i));
+            const p = project(world);
+            radii.push(Math.hypot(p.x - node.x, p.y - node.y));
+          }
+          const roundness = radii.length ? Math.min(...radii) / Math.max(1, Math.max(...radii)) : 0;
+          return { axis, mesh, roundness };
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.roundness - a.roundness);
+      for (const { axis, mesh } of candidates) {
         const positions = mesh.geometry.getAttribute('position');
         for (let i = 0; i < positions.count; i += 4) {
           const world = mesh.localToWorld(mesh.position.clone().fromBufferAttribute(positions, i));
           const p = project(world), ndc = world.clone().project(s.editorCamera);
+          if (Math.hypot(p.x - node.x, p.y - node.y) < 24) continue;
           if (p.x < rect.left + 20 || p.x > rect.right - 20 || p.y < rect.top + 20 || p.y > rect.bottom - 20) continue;
           if (entry.markers.some(m => { const q = project(m.getWorldPosition(m.position.clone())); return Math.hypot(q.x - p.x, q.y - p.y) < 14; })) continue;
           const ray = new (s.transform.getRaycaster().constructor)(); ray.setFromCamera(ndc, s.editorCamera);
@@ -68,7 +83,7 @@ export async function runPosingSmoke(page, {
   try {
     await page.locator('.boot-overlay').waitFor({ state: 'hidden' });
     for (const name of bodies) {
-      await page.getByRole('listitem').filter({ hasText: new RegExp(`^\u25cb${name}Rigged figure$`) }).click();
+      await page.getByRole('listitem').filter({ hasText: name }).first().click();
       await page.getByRole('button', { name: 'Frame F', exact: true }).click();
       await settle();
       for (const joint of joints) {

@@ -4,11 +4,13 @@ export type Joint = typeof JOINTS[number];
 export type Pose = Record<Joint, Vec3>;
 export type Body = 'male' | 'female';
 export const DEFAULT_HAIR_COLOR = '#3b2720';
+export const HAIR_STYLE_IDS = ['parted', 'long', 'buns', 'buzz', 'partedBeard', 'none'] as const;
+export type HairStyleId = typeof HAIR_STYLE_IDS[number];
 export const PROP_KINDS = ['lamp', 'table', 'chair', 'desk', 'couch', 'bed', 'room'] as const;
 export type PropKind = typeof PROP_KINDS[number];
 export interface Item {
   id: string; name: string; kind: Body | PropKind | 'light'; color: string;
-  position: Vec3; rotation: Vec3; scale: Vec3; pose?: Pose; hairColor?: string; intensity?: number; target?: Vec3;
+  position: Vec3; rotation: Vec3; scale: Vec3; pose?: Pose; hairColor?: string; hairStyle?: HairStyleId; intensity?: number; target?: Vec3;
 }
 export interface CameraState {
   position: Vec3; target: Vec3; focalLength: number; near: number; far: number;
@@ -25,26 +27,177 @@ export const neutralPose = (): Pose => Object.fromEntries(JOINTS.map(j => [j, [0
 export const clone = <T>(value: T): T => structuredClone(value);
 export const radians = (degrees: number) => degrees * Math.PI / 180;
 export const degrees = (r: number) => r * 180 / Math.PI;
-export const PRESETS = ['Neutral', 'Contrapposto', 'Seated', 'Reach', 'Walking', 'Kneeling'] as const;
-export function preset(name: typeof PRESETS[number]): Pose {
+export const PRESETS = [
+  'Neutral',
+  'Relaxed',
+  'Contrapposto',
+  'Heroic',
+  'Walking',
+  'Running',
+  'Seated',
+  'Kneeling',
+  'Crouch',
+  'Reach',
+] as const;
+export type PresetName = typeof PRESETS[number];
+
+export function preset(name: PresetName): Pose {
   const p = neutralPose();
   const set = (j: Joint, x = 0, y = 0, z = 0) => { p[j] = [x, y, z].map(radians) as Vec3; };
-  if (name === 'Contrapposto') {
-    set('hips', 0, 0, 8); set('chest', 0, -8, -10); set('leftHip', 0, 0, -12);
-    set('leftKnee', 18); set('leftShoulder', 0, 0, -18); set('leftElbow', -65, 0, -25); set('head', 0, 16, 0);
-  } else if (name === 'Seated') {
-    set('leftHip', -85, 0, -4); set('rightHip', -85, 0, 4);
-    set('leftKnee', 90); set('rightKnee', 90); set('leftElbow', -65); set('rightElbow', -65);
-  } else if (name === 'Reach') {
-    set('leftShoulder', -25, 0, -150); set('leftElbow', -25); set('chest', 0, 0, -12);
-    set('rightShoulder', 0, 0, 15); set('head', -12, 0, -12);
+  if (name === 'Relaxed') {
+    set('hips', 0, -4, -3);
+    set('spine', 2, 2, 2);
+    set('chest', -2, 3, 2);
+    set('neck', 2, 3, -1);
+    set('head', -2, 5, -2);
+    set('leftShoulder', 3, 4, 5);
+    set('leftElbow', -12, -8, 0);
+    set('leftWrist', 0, 0, -4);
+    set('rightShoulder', -2, -4, -5);
+    set('rightElbow', -10, 8, 0);
+    set('rightWrist', 0, 0, 4);
+    set('leftHip', -5, 7, 4);
+    set('leftKnee', 10, 0, 0);
+    set('leftAnkle', 4, 0, -2);
+    set('rightHip', 1, -5, 2);
+    set('rightKnee', 3, 0, 0);
+    set('rightAnkle', -1, 0, -2);
+  } else if (name === 'Contrapposto') {
+    set('hips', 0, -6, -7);
+    set('spine', 1, 4, 5);
+    set('chest', -3, 6, 6);
+    set('neck', 2, -5, -3);
+    set('head', -3, -10, -4);
+    set('leftShoulder', 46, -35, 31);
+    set('leftElbow', -75, -10, 0);
+    set('leftWrist', -12, 0, 0);
+    set('rightShoulder', 5, -6, -7);
+    set('rightElbow', -14, 8, 0);
+    set('rightWrist', 0, 0, 5);
+    set('rightHip', 2, -5, 6);
+    set('rightKnee', 3, 0, 0);
+    set('rightAnkle', -2, 0, 1);
+    set('leftHip', -16, 10, 10);
+    set('leftKnee', 28, 0, 0);
+    set('leftAnkle', 14, 0, -3);
+  } else if (name === 'Heroic') {
+    set('hips', -2, 0, 0);
+    set('spine', -4, 0, 0);
+    set('chest', -7, 0, 0);
+    set('neck', 4, 0, 0);
+    set('head', 3, -8, 0);
+    set('leftShoulder', 46, -35, 31);
+    set('leftElbow', -75, -10, 0);
+    set('leftWrist', -12, 0, 0);
+    set('rightShoulder', 46, 35, -31);
+    set('rightElbow', -75, 10, 0);
+    set('rightWrist', -12, 0, 0);
+    set('leftHip', -4, 10, 11);
+    set('leftKnee', 6, 0, 0);
+    set('leftAnkle', -2, 0, -9);
+    set('rightHip', 2, -10, -11);
+    set('rightKnee', 5, 0, 0);
+    set('rightAnkle', -3, 0, 9);
   } else if (name === 'Walking') {
-    set('leftHip', -32); set('rightHip', 25); set('rightKnee', 40);
-    set('leftShoulder', 25); set('rightShoulder', -30); set('leftElbow', -25); set('rightElbow', -40);
-    set('chest', 0, -9); set('hips', 0, 9);
+    set('hips', 2, -8, -3);
+    set('spine', 2, 4, 2);
+    set('chest', 3, 8, 2);
+    set('neck', -2, -3, 0);
+    set('head', -2, -3, 0);
+    set('leftHip', -24, 3, 2);
+    set('leftKnee', 8, 0, 0);
+    set('leftAnkle', -10, 0, 0);
+    set('rightHip', 20, -3, -2);
+    set('rightKnee', 26, 0, 0);
+    set('rightAnkle', 16, 0, 0);
+    set('rightShoulder', -22, 4, -6);
+    set('rightElbow', -24, 8, 0);
+    set('leftShoulder', 18, -4, 6);
+    set('leftElbow', -18, -6, 0);
+  } else if (name === 'Running') {
+    set('hips', 12, -14, -4);
+    set('spine', 8, 8, 2);
+    set('chest', 8, 14, 3);
+    set('neck', -10, -4, 0);
+    set('head', -12, -4, 0);
+    set('leftHip', -58, 4, 3);
+    set('leftKnee', 68, 0, 0);
+    set('leftAnkle', -12, 0, 0);
+    set('rightHip', 32, -4, -3);
+    set('rightKnee', 42, 0, 0);
+    set('rightAnkle', 24, 0, 0);
+    set('rightShoulder', -46, 10, -10);
+    set('rightElbow', -88, 10, 0);
+    set('leftShoulder', 38, -8, 12);
+    set('leftElbow', -82, -8, 0);
+  } else if (name === 'Seated') {
+    set('hips', -6, 0, 0);
+    set('spine', 6, 0, 0);
+    set('chest', 4, -3, 0);
+    set('neck', -2, 3, 0);
+    set('head', -2, 5, -2);
+    set('leftHip', -86, 8, 7);
+    set('leftKnee', 88, 0, 0);
+    set('leftAnkle', 2, 0, -4);
+    set('rightHip', -86, -8, -7);
+    set('rightKnee', 88, 0, 0);
+    set('rightAnkle', 2, 0, 4);
+    set('leftShoulder', -18, -22, 10);
+    set('leftElbow', -52, -35, 0);
+    set('leftWrist', 8, 0, 0);
+    set('rightShoulder', -18, 22, -10);
+    set('rightElbow', -52, 35, 0);
+    set('rightWrist', 8, 0, 0);
   } else if (name === 'Kneeling') {
-    set('leftHip', -75); set('leftKnee', 85); set('rightHip', 12); set('rightKnee', 125);
-    set('leftShoulder', -25); set('rightShoulder', -25); set('leftElbow', -65); set('rightElbow', -65);
+    set('hips', 8, -5, 0);
+    set('spine', 12, 3, 0);
+    set('chest', 8, 4, 0);
+    set('neck', -12, -3, 0);
+    set('head', -10, -4, 0);
+    set('leftHip', -112, 8, 6);
+    set('leftKnee', 102, 0, 0);
+    set('leftAnkle', 2, 0, -4);
+    set('rightHip', 4, -4, -3);
+    set('rightKnee', 88, 0, 0);
+    set('rightAnkle', 56, 0, 0);
+    set('leftShoulder', -34, -18, 8);
+    set('leftElbow', -42, -24, 0);
+    set('leftWrist', 16, 0, 0);
+    set('rightShoulder', 12, -8, -10);
+    set('rightElbow', -24, 10, 0);
+  } else if (name === 'Crouch') {
+    set('hips', 20, -8, 0);
+    set('spine', 14, 4, 0);
+    set('chest', 10, 6, 0);
+    set('neck', -18, -2, 0);
+    set('head', -18, -4, 0);
+    set('leftHip', -78, 14, 14);
+    set('leftKnee', 92, 0, 0);
+    set('leftAnkle', -34, 0, -10);
+    set('rightHip', -68, -14, -14);
+    set('rightKnee', 86, 0, 0);
+    set('rightAnkle', -38, 0, 10);
+    set('leftShoulder', -36, -12, 24);
+    set('leftElbow', -68, -15, 0);
+    set('rightShoulder', -22, 12, -26);
+    set('rightElbow', -58, 15, 0);
+  } else if (name === 'Reach') {
+    set('hips', -2, -8, -4);
+    set('spine', -4, 6, 4);
+    set('chest', -6, 10, 6);
+    set('neck', -8, 8, -4);
+    set('head', -14, 10, -4);
+    set('leftShoulder', -126, 12, 26);
+    set('leftElbow', -14, -10, 0);
+    set('leftWrist', -8, 0, 0);
+    set('rightShoulder', 18, -10, -18);
+    set('rightElbow', -22, 8, 0);
+    set('leftHip', -8, 6, 5);
+    set('leftKnee', 8, 0, 0);
+    set('leftAnkle', 0, 0, -3);
+    set('rightHip', 6, -6, 3);
+    set('rightKnee', 10, 0, 0);
+    set('rightAnkle', 6, 0, 2);
   }
   return p;
 }
@@ -54,13 +207,13 @@ export function createItem(kind: Item['kind'], index = 0): Item {
     id: crypto.randomUUID(), name: `${kind[0].toUpperCase()}${kind.slice(1)} ${index + 1}`, kind,
     color: body ? (kind === 'male' ? '#b9c9d1' : '#d3b8a5') : kind === 'light' ? '#fff1db' : '#a59987',
     position: [index * 0.6, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1],
-    ...(body ? { pose: neutralPose(), hairColor: DEFAULT_HAIR_COLOR } : {}),
+    ...(body ? { pose: neutralPose(), hairColor: DEFAULT_HAIR_COLOR, hairStyle: (kind === 'female' ? 'long' : 'parted') as HairStyleId } : {}),
     ...(kind === 'light' ? { position: [3, 5, 3] as Vec3, target: [0, 1, 0] as Vec3, intensity: 30 } : {}),
   };
 }
 export function initialScene(): SceneState {
-  const male = createItem('male'); male.position = [-0.5, 0, 0]; male.pose = preset('Contrapposto');
-  const female = createItem('female'); female.position = [0.55, 0, 0.05]; female.pose = preset('Neutral'); female.rotation[1] = -0.15;
+  const male = createItem('male'); male.position = [-0.5, -0.013, 0]; male.pose = preset('Contrapposto');
+  const female = createItem('female'); female.position = [0.55, -0.005, 0.05]; female.pose = preset('Relaxed'); female.rotation[1] = -0.15;
   return {
     schemaVersion: 1, rigVersion: 1, type: 'scene', name: 'Untitled study',
     items: [male, female, createItem('light')], background: '#343231',
@@ -103,6 +256,7 @@ export function validatePortable(value: unknown): Portable {
     if (isBody(kind)) {
       item.pose = validatePose(i.pose);
       item.hairColor = i.hairColor === undefined ? DEFAULT_HAIR_COLOR : color(i.hairColor);
+      item.hairStyle = i.hairStyle === undefined ? (kind === 'female' ? 'long' : 'parted') : enumValue(i.hairStyle, HAIR_STYLE_IDS);
     }
     if (kind === 'light') { item.intensity = num(i.intensity, 0, 200); item.target = vec(i.target); }
     return item;

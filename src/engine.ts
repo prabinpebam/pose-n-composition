@@ -6,10 +6,10 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { getJointRotation, setFigurePose, type Figure } from './rig';
-import { makeExternalFigure } from './external-rig';
+import { makeExternalFigure, setFigureHairStyle } from './external-rig';
 import { makeProp } from './props';
 import { pickJointMarker, sizeJointMarker } from './joint-markers';
-import { clone, DEFAULT_HAIR_COLOR, isBody, JOINTS, validatePortable, type Item, type Joint, type SceneState, type Vec3 } from './model';
+import { clone, DEFAULT_HAIR_COLOR, isBody, JOINTS, validatePortable, type Item, type Joint, type Pose, type SceneState, type Vec3 } from './model';
 
 interface Entry { kind: Item['kind']; root: T.Group; figure?: Figure; light?: T.SpotLight; target?: T.Object3D; markers?: T.Mesh<T.SphereGeometry, T.MeshBasicMaterial>[] }
 export interface EngineOptions {
@@ -175,7 +175,8 @@ export class Studio {
         entry.root.userData.itemId = item.id; this.entries.set(item.id, entry); this.scene.add(entry.root);
       }
       entry.root.position.fromArray(item.position); entry.root.rotation.set(...item.rotation); entry.root.scale.fromArray(item.scale);
-      if (entry.figure && item.pose) {
+      if (entry.figure && item.pose && isBody(item.kind)) {
+        setFigureHairStyle(entry.figure, item.kind, item.hairStyle, item.hairColor ?? DEFAULT_HAIR_COLOR);
         setFigurePose(entry.figure, item.pose);
         entry.figure.tintMaterials.forEach(material => material.color.set(item.color));
         entry.figure.hairMaterials.forEach(material => material.color.set(item.hairColor ?? DEFAULT_HAIR_COLOR));
@@ -218,6 +219,11 @@ export class Studio {
     this.cameraView = cameraView; this.orbit.enabled = !cameraView; this.select(this.selected, this.joint); this.resize();
   }
   setHelpers(joints: boolean, helpers: boolean): void { this.jointsVisible = joints; this.helpers = helpers; this.select(this.selected, this.joint); }
+  setOrbitView(position: Vec3, target: Vec3): void {
+    this.orbit.target.fromArray(target);
+    this.editorCamera.position.fromArray(position);
+    this.orbit.update();
+  }
   focusSelected(): void {
     const e = this.selected ? this.entries.get(this.selected) : null;
     const center = e ? new T.Box3().setFromObject(e.root).getCenter(new T.Vector3()) : new T.Vector3(0, 1, 0);
@@ -226,6 +232,43 @@ export class Studio {
   }
   useEditorCamera(): Pick<SceneState['camera'], 'position' | 'target'> {
     return { position: this.editorCamera.position.toArray() as Vec3, target: this.orbit.target.toArray() as Vec3 };
+  }
+  getFigure(id: string): Figure | null {
+    return this.entries.get(id)?.figure ?? null;
+  }
+  groundPoseY(id: string, candidatePose?: Pose): number | null {
+    const entry = this.entries.get(id);
+    const stateItem = this.state?.items.find(i => i.id === id);
+    if (!entry?.figure || !stateItem?.pose) return null;
+    const prevY = entry.root.position.y;
+    entry.root.position.y = 0;
+    setFigurePose(entry.figure, candidatePose ?? stateItem.pose);
+    entry.root.updateMatrixWorld(true);
+    const skin = entry.figure.skin;
+    skin.skeleton.update();
+    const pos = skin.geometry.getAttribute('position');
+    const vertex = new T.Vector3();
+    let minY = Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      const y = skin.getVertexPosition(i, vertex).applyMatrix4(skin.matrixWorld).y;
+      if (y < minY) minY = y;
+    }
+    entry.root.position.y = prevY;
+    setFigurePose(entry.figure, stateItem.pose);
+    entry.root.updateMatrixWorld(true);
+    skin.skeleton.update();
+    return Number.isFinite(minY) ? Number((-minY).toFixed(4)) : null;
+  }
+  previewFigurePose(id: string, pose: Pose, rootY?: number): void {
+    const entry = this.entries.get(id);
+    if (!entry?.figure) return;
+    if (rootY !== undefined) entry.root.position.y = rootY;
+    setFigurePose(entry.figure, pose);
+    entry.root.updateMatrixWorld(true);
+    entry.figure.skin.skeleton.update();
+    if (this.selected === id && !this.cameraView) {
+      this.transform.attach(this.joint ? entry.figure.bones[this.joint] : entry.root);
+    }
   }
   selectedFocusDistance(): number | null {
     const e = this.selected ? this.entries.get(this.selected) : null;

@@ -1,228 +1,1526 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ANIMATION_ACCEPT_EXTENSIONS,
+  BUILTIN_ANIMATION_CYCLES,
+  extractPoseAtFrame,
+  loadBuiltinAnimationCycle,
+  loadUserAnimationFile,
+  MAX_ANIMATION_FILE_BYTES,
+  type AnimationCycleCategory,
+  type AnimationCycleClip,
+} from './animationPoseExtractor';
+import {
+  ColorField,
+  Icons,
+  ListRow,
+  NumericField,
+  SegmentedControl,
+  SelectDropdown,
+  SliderField,
+  SwitchRow,
+  Vector3Field,
+  type SelectOption,
+} from './components/ui';
 import { Studio } from './engine';
 import { loadExternalFigures } from './external-rig';
-import { applyPose, clone, createItem, DEFAULT_HAIR_COLOR, degrees, initialScene, isBody, JOINTS, MAX_FILE_BYTES, parseFile, poseFile, PRESETS, preset, PROP_KINDS, radians, validatePortable, type Item, type Joint, type Portable, type SceneState, type Vec3 } from './model';
+import { defaultHairStyle, HAIR_STYLE_LABELS, HAIR_STYLES } from './hair';
+import {
+  applyPose,
+  clone,
+  createItem,
+  DEFAULT_HAIR_COLOR,
+  degrees,
+  initialScene,
+  isBody,
+  JOINTS,
+  MAX_FILE_BYTES,
+  parseFile,
+  poseFile,
+  PRESETS,
+  preset,
+  PROP_KINDS,
+  radians,
+  validatePortable,
+  type HairStyleId,
+  type Item,
+  type Joint,
+  type Portable,
+  type Pose,
+  type SceneState,
+  type Vec3,
+} from './model';
 import { deleteLocal, download, downloadBlob, listSaved, saveLocal, type Saved } from './storage';
+
+const ANIM_CATEGORIES: readonly AnimationCycleCategory[] = [
+  'Locomotion',
+  'Idle & Gesture',
+  'Stealth & Ground',
+  'Action & Athletic',
+];
+
+const JOINT_GROUPS: Record<Joint, string> = {
+  hips: 'Torso & Head',
+  spine: 'Torso & Head',
+  chest: 'Torso & Head',
+  neck: 'Torso & Head',
+  head: 'Torso & Head',
+  leftShoulder: 'Left Arm',
+  leftElbow: 'Left Arm',
+  leftWrist: 'Left Arm',
+  rightShoulder: 'Right Arm',
+  rightElbow: 'Right Arm',
+  rightWrist: 'Right Arm',
+  leftHip: 'Left Leg',
+  leftKnee: 'Left Leg',
+  leftAnkle: 'Left Leg',
+  rightHip: 'Right Leg',
+  rightKnee: 'Right Leg',
+  rightAnkle: 'Right Leg',
+};
+
+const PROP_META: Record<(typeof PROP_KINDS)[number], string> = {
+  chair: 'Studio seat',
+  table: 'Work surface',
+  desk: 'Drafting desk',
+  couch: '2-seat sofa',
+  bed: 'Low platform',
+  lamp: 'Floor stand',
+  room: 'Corner walls',
+};
 
 type Tab = 'object' | 'camera' | 'library';
 type Notice = { text: string; error: boolean };
+
+function posesMatch(a: Pose | undefined, b: Pose): boolean {
+  if (!a) return false;
+  for (const j of JOINTS) {
+    for (let k = 0; k < 3; k++) {
+      if (Math.abs(a[j][k] - b[j][k]) > 1e-3) return false;
+    }
+  }
+  return true;
+}
+
 export function App() {
   const [doc, setDoc] = useState(initialScene);
   const current = useRef(doc);
-  const past = useRef<SceneState[]>([]), future = useRef<SceneState[]>([]);
+  const past = useRef<SceneState[]>([]),
+    future = useRef<SceneState[]>([]);
   const [historyTick, historyUpdate] = useState(0);
   const [selected, setSelected] = useState<string | null>(doc.items[0].id);
   const [joint, setJoint] = useState<Joint | null>(null);
   const [tab, setTab] = useState<Tab>('object');
-  const [view, setView] = useState(false), [help, setHelp] = useState(false);
-  const [showJoints, setShowJoints] = useState(true), [showHelpers, setShowHelpers] = useState(true);
+  const [view, setView] = useState(false),
+    [help, setHelp] = useState(false);
+  const [showJoints, setShowJoints] = useState(true),
+    [showHelpers, setShowHelpers] = useState(true);
   const [mode, setMode] = useState<'translate' | 'rotate' | 'scale'>('translate');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
+    document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light',
+  );
   const [notice, setNotice] = useState<Notice | null>(null);
   const [saved, setSaved] = useState<Saved[]>([]);
   const [saveName, setSaveName] = useState('My study');
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true), [loadError, setLoadError] = useState<string | null>(null), [retry, setRetry] = useState(0);
-  const host = useRef<HTMLDivElement>(null), engine = useRef<Studio | null>(null), file = useRef<HTMLInputElement>(null);
+  const [loading, setLoading] = useState(true),
+    [loadError, setLoadError] = useState<string | null>(null),
+    [retry, setRetry] = useState(0);
+  const [animClips, setAnimClips] = useState<Record<string, AnimationCycleClip>>({});
+  const [userClipIds, setUserClipIds] = useState<string[]>([]);
+  const [activeCycleId, setActiveCycleId] = useState('');
+  const [animFrame, setAnimFrame] = useState(0);
+  const [animPlaying, setAnimPlaying] = useState(false);
+  const [animBusy, setAnimBusy] = useState(false);
+  const [groundAnim, setGroundAnim] = useState(true);
+  const [animPreviewing, setAnimPreviewing] = useState(false);
+  const host = useRef<HTMLDivElement>(null),
+    engine = useRef<Studio | null>(null),
+    file = useRef<HTMLInputElement>(null),
+    animFile = useRef<HTMLInputElement>(null);
+
   const liveSettings = useRef({ selected, joint, view, mode, showJoints, showHelpers });
   liveSettings.current = { selected, joint, view, mode, showJoints, showHelpers };
+
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    setTheme(next);
+  };
+
   const notify = useCallback((text: string, error = false) => setNotice({ text, error }), []);
   const report = useCallback((e: unknown) => notify(e instanceof Error ? e.message : String(e), true), [notify]);
   const commit = useCallback((next: SceneState) => {
-    past.current.push(clone(current.current)); if (past.current.length > 100) past.current.shift();
-    future.current = []; current.current = next; setDoc(next); historyUpdate(t => t + 1);
+    past.current.push(clone(current.current));
+    if (past.current.length > 100) past.current.shift();
+    future.current = [];
+    current.current = next;
+    setDoc(next);
+    historyUpdate(t => t + 1);
   }, []);
-  const update = (fn: (next: SceneState) => void) => { const next = clone(current.current); fn(next); commit(next); };
-  const select = useCallback((id: string | null, j: Joint | null) => { setSelected(id); setJoint(j); if (id) setTab('object'); }, []);
+  const update = (fn: (next: SceneState) => void) => {
+    const next = clone(current.current);
+    fn(next);
+    commit(next);
+  };
+
+  const activeClip = activeCycleId ? animClips[activeCycleId] ?? null : null;
+  const previewStateRef = useRef({
+    animPreviewing: false,
+    activeClip: null as AnimationCycleClip | null,
+    animFrame: 0,
+    groundAnim: true,
+    selected,
+  });
+  previewStateRef.current = { animPreviewing, activeClip, animFrame, groundAnim, selected };
+
+  const computeExtractedForItem = useCallback(
+    (clip: AnimationCycleClip, frame: number, ground: boolean, target: Item) => {
+      if (!isBody(target.kind)) return null;
+      const fig = engine.current?.getFigure(target.id) ?? undefined;
+      const extracted = extractPoseAtFrame(clip, frame, { body: target.kind, figure: fig });
+      let nextY = target.position[1];
+      if (ground && engine.current) {
+        const floorY = engine.current.groundPoseY(target.id, extracted.pose) ?? 0;
+        nextY = Math.max(floorY, extracted.suggestedRootY ?? floorY);
+      }
+      return { extracted, nextY };
+    },
+    [],
+  );
+
+  const previewCycleFrame = useCallback(
+    (clip: AnimationCycleClip, frame: number, ground: boolean, target?: Item) => {
+      const t = target ?? current.current.items.find(i => i.id === liveSettings.current.selected);
+      if (!t || !isBody(t.kind) || !engine.current) return;
+      const res = computeExtractedForItem(clip, frame, ground, t);
+      if (!res) return;
+      engine.current.previewFigurePose(t.id, res.extracted.pose, res.nextY);
+      setAnimPreviewing(true);
+    },
+    [computeExtractedForItem],
+  );
+
+  const applyActiveAnimPose = useCallback(
+    (silent = false) => {
+      const { activeClip: clip, animFrame: frame, groundAnim: ground, selected: selId } = previewStateRef.current;
+      const target = current.current.items.find(i => i.id === selId);
+      if (!clip || !target || !isBody(target.kind)) return;
+      setAnimPlaying(false);
+      const res = computeExtractedForItem(clip, frame, ground, target);
+      if (!res) return;
+      const next = clone(current.current);
+      const dst = next.items.find(i => i.id === target.id);
+      if (dst) {
+        dst.pose = res.extracted.pose;
+        dst.position = [dst.position[0], res.nextY, dst.position[2]];
+        commit(next);
+      }
+      setAnimPreviewing(false);
+      if (!silent) notify(`Applied frame ${res.extracted.frame + 1}/${clip.frameCount} of "${clip.name}" as figure pose.`);
+    },
+    [commit, computeExtractedForItem, notify],
+  );
+
+  const cancelAnimPreview = useCallback(() => {
+    setAnimPlaying(false);
+    setAnimPreviewing(false);
+    engine.current?.sync(current.current);
+  }, []);
+
+  const select = useCallback(
+    (id: string | null, j: Joint | null) => {
+      const ps = previewStateRef.current;
+      if (ps.animPreviewing) {
+        if (id && id === ps.selected && j !== null) {
+          applyActiveAnimPose(true);
+        } else if (id !== ps.selected) {
+          setAnimPlaying(false);
+          setAnimPreviewing(false);
+          engine.current?.sync(current.current);
+        }
+      }
+      setSelected(id);
+      setJoint(j);
+      if (id) setTab('object');
+    },
+    [applyActiveAnimPose],
+  );
+
   const item = doc.items.find(i => i.id === selected);
-  const editItem = (patch: Partial<Item>) => update(next => { const i = next.items.find(i => i.id === selected); if (i) Object.assign(i, patch); });
+  const editItem = (patch: Partial<Item>) =>
+    update(next => {
+      const i = next.items.find(i => i.id === selected);
+      if (i) Object.assign(i, patch);
+    });
   const editCamera = (patch: Partial<SceneState['camera']>) => update(next => Object.assign(next.camera, patch));
   const undo = useCallback((redo = false) => {
-    const from = redo ? future.current : past.current, to = redo ? past.current : future.current;
-    const next = from.pop(); if (!next) return;
-    to.push(current.current); current.current = next; setDoc(next); historyUpdate(t => t + 1);
+    setAnimPlaying(false);
+    setAnimPreviewing(false);
+    const from = redo ? future.current : past.current,
+      to = redo ? past.current : future.current;
+    const next = from.pop();
+    if (!next) return;
+    to.push(current.current);
+    current.current = next;
+    setDoc(next);
+    historyUpdate(t => t + 1);
   }, []);
+
+  const removeItemById = useCallback(
+    (id: string) => {
+      setAnimPlaying(false);
+      setAnimPreviewing(false);
+      const next = clone(current.current);
+      next.items = next.items.filter(i => i.id !== id);
+      commit(next);
+      if (selected === id) {
+        setSelected(next.items[0]?.id ?? null);
+        setJoint(null);
+      }
+    },
+    [selected, commit],
+  );
+
   const removeSelected = useCallback(() => {
-    if (!selected) return;
-    const next = clone(current.current); next.items = next.items.filter(i => i.id !== selected); commit(next); setSelected(null); setJoint(null);
-  }, [selected, commit]);
+    if (selected) removeItemById(selected);
+  }, [selected, removeItemById]);
+
   useEffect(() => {
     let cancelled = false;
-    setLoading(true); setLoadError(null);
-    loadExternalFigures().then(() => {
-      if (cancelled) return;
-      const studio = new Studio(host.current!, { change: commit, select, error: report });
-      engine.current = studio;
-      try {
-        const s = liveSettings.current;
-        studio.sync(current.current); studio.select(s.selected, s.joint); studio.setMode(s.mode);
-        studio.setHelpers(s.showJoints, s.showHelpers); studio.setView(s.view);
+    setLoading(true);
+    setLoadError(null);
+    loadExternalFigures()
+      .then(() => {
+        if (cancelled) return;
+        const studio = new Studio(host.current!, { change: commit, select, error: report });
+        engine.current = studio;
+        (host.current as (HTMLDivElement & { __studio?: Studio }) | null)!.__studio = studio;
+        try {
+          const s = liveSettings.current;
+          studio.sync(current.current);
+          studio.select(s.selected, s.joint);
+          studio.setMode(s.mode);
+          studio.setHelpers(s.showJoints, s.showHelpers);
+          studio.setView(s.view);
+          setLoading(false);
+        } catch (error) {
+          engine.current = null;
+          studio.dispose();
+          throw error;
+        }
+      })
+      .catch(error => {
+        if (cancelled) return;
         setLoading(false);
-      } catch (error) { engine.current = null; studio.dispose(); throw error; }
-    }).catch(error => {
-      if (cancelled) return;
-      setLoading(false); setLoadError(error instanceof Error ? error.message : String(error));
-    });
-    return () => { cancelled = true; engine.current?.dispose(); engine.current = null; };
+        setLoadError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      cancelled = true;
+      engine.current?.dispose();
+      engine.current = null;
+    };
   }, [commit, select, report, retry]);
-  useEffect(() => { engine.current?.sync(doc); }, [doc]);
-  useEffect(() => { engine.current?.select(selected, joint); }, [selected, joint, doc]);
-  useEffect(() => { engine.current?.setView(view); }, [view]);
-  useEffect(() => { engine.current?.setMode(mode); }, [mode]);
+
+  useEffect(() => {
+    engine.current?.sync(doc);
+  }, [doc]);
+  useEffect(() => {
+    engine.current?.select(selected, joint);
+  }, [selected, joint, doc]);
+  useEffect(() => {
+    engine.current?.setView(view);
+  }, [view]);
+  useEffect(() => {
+    engine.current?.setMode(mode);
+  }, [mode]);
+
   useEffect(() => {
     try {
       const raw = localStorage.getItem('pose-n-composition:preferences');
       if (raw) {
         const p: unknown = JSON.parse(raw);
-        if (!p || typeof p !== 'object' || !('joints' in p) || typeof p.joints !== 'boolean' || !('helpers' in p) || typeof p.helpers !== 'boolean') throw new Error('Stored preferences are malformed. Toggle viewport helpers to replace them.');
-        setShowJoints(p.joints); setShowHelpers(p.helpers);
+        if (
+          !p ||
+          typeof p !== 'object' ||
+          !('joints' in p) ||
+          typeof p.joints !== 'boolean' ||
+          !('helpers' in p) ||
+          typeof p.helpers !== 'boolean'
+        )
+          throw new Error('Stored preferences are malformed. Toggle viewport helpers to replace them.');
+        setShowJoints(p.joints);
+        setShowHelpers(p.helpers);
       }
-    } catch (e) { report(new Error(`Preferences unavailable: ${e instanceof Error ? e.message : String(e)}`)); }
+    } catch (e) {
+      report(new Error(`Preferences unavailable: ${e instanceof Error ? e.message : String(e)}`));
+    }
     listSaved().then(setSaved).catch(report);
   }, [report]);
-  useEffect(() => { engine.current?.setHelpers(showJoints, showHelpers); }, [showJoints, showHelpers]);
+
+  useEffect(() => {
+    engine.current?.setHelpers(showJoints, showHelpers);
+  }, [showJoints, showHelpers]);
+
   const preference = (key: 'joints' | 'helpers', value: boolean) => {
-    if (key === 'joints') setShowJoints(value); else setShowHelpers(value);
-    try { localStorage.setItem('pose-n-composition:preferences', JSON.stringify({ joints: key === 'joints' ? value : showJoints, helpers: key === 'helpers' ? value : showHelpers })); }
-    catch (e) { report(new Error(`Preferences not saved: ${e instanceof Error ? e.message : String(e)}`)); }
+    if (key === 'joints') setShowJoints(value);
+    else setShowHelpers(value);
+    try {
+      localStorage.setItem(
+        'pose-n-composition:preferences',
+        JSON.stringify({ joints: key === 'joints' ? value : showJoints, helpers: key === 'helpers' ? value : showHelpers }),
+      );
+    } catch (e) {
+      report(new Error(`Preferences not saved: ${e instanceof Error ? e.message : String(e)}`));
+    }
   };
+
   useEffect(() => {
     if (!notice) return;
-    const timer = setTimeout(() => setNotice(null), notice.error ? 14000 : 5500); return () => clearTimeout(timer);
+    const timer = setTimeout(() => setNotice(null), notice.error ? 14000 : 4800);
+    return () => clearTimeout(timer);
   }, [notice]);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.closest('input, textarea, select, [contenteditable]')) return;
+      if ((e.target as HTMLElement)?.closest('input, textarea, select, [role="combobox"], [role="listbox"], [contenteditable]')) return;
       if (loading || loadError) return;
-      if (e.key === 'Escape') { setHelp(false); setJoint(null); }
+      if (e.key === 'Escape') {
+        setHelp(false);
+        setJoint(null);
+      }
       if (help) return;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(e.shiftKey); }
-      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); undo(true); }
-      else if (e.key.toLowerCase() === 'w') { setJoint(null); setMode('translate'); }
-      else if (e.key.toLowerCase() === 'e') { setJoint(null); setMode('rotate'); }
-      else if (e.key.toLowerCase() === 'r') { setJoint(null); setMode('scale'); }
-      else if (e.key.toLowerCase() === 'f') engine.current?.focusSelected();
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        undo(e.shiftKey);
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        undo(true);
+      } else if (e.key.toLowerCase() === 'w') {
+        setJoint(null);
+        setMode('translate');
+      } else if (e.key.toLowerCase() === 'e') {
+        setJoint(null);
+        setMode('rotate');
+      } else if (e.key.toLowerCase() === 'r') {
+        setJoint(null);
+        setMode('scale');
+      } else if (e.key.toLowerCase() === 'f') engine.current?.focusSelected();
       else if (e.key === 'Delete') removeSelected();
       else if (e.key.toLowerCase() === 'c') setView(v => !v);
       else if (e.key === '?') setHelp(true);
     };
-    window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler);
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   }, [undo, removeSelected, help, loading, loadError]);
-  const add = (kind: Item['kind']) => {
-    if (doc.items.length >= 64) { report(new Error('Scene limit: 64 objects.')); return; }
-    if (kind === 'light' && doc.items.filter(i => i.kind === 'light').length >= 8) { report(new Error('Scene limit: 8 lights.')); return; }
-    const next = createItem(kind, doc.items.filter(i => i.kind === kind).length);
-    update(d => { d.items.push(next); }); select(next.id, null); setView(false);
-  };
-  const loadPortable = (data: Portable) => {
-    const valid = validatePortable(data);
-    if (valid.type === 'scene') { commit(valid); setSelected(valid.items[0]?.id ?? null); setJoint(null); notify('Scene loaded. Undo returns to the previous scene.'); }
-    else {
-      if (!item) throw new Error('Select a figure before loading a pose.');
-      editItem(applyPose(item, valid)); notify(`Applied "${valid.name}" to ${item.name}. Root transform preserved.`);
+
+  useEffect(() => {
+    if (!animPlaying || !activeClip) return;
+    let raf = 0;
+    let last = performance.now();
+    let cursor = animFrame;
+    const step = (now: number) => {
+      const dt = (now - last) / 1000;
+      last = now;
+      cursor += dt * activeClip.fps;
+      if (cursor >= activeClip.frameCount) {
+        if (activeClip.loop) cursor %= activeClip.frameCount;
+        else {
+          cursor = activeClip.frameCount - 1;
+          const endFrame = Math.round(cursor);
+          setAnimFrame(endFrame);
+          previewCycleFrame(activeClip, endFrame, groundAnim);
+          setAnimPlaying(false);
+          return;
+        }
+      }
+      const nextFrame = Math.floor(cursor);
+      setAnimFrame(prev => (prev === nextFrame ? prev : nextFrame));
+      previewCycleFrame(activeClip, nextFrame, groundAnim);
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [animPlaying, activeClip, groundAnim, previewCycleFrame]);
+
+  const chooseCycle = async (cycleId: string) => {
+    setAnimPlaying(false);
+    if (!cycleId) {
+      setActiveCycleId('');
+      if (animPreviewing) cancelAnimPreview();
+      return;
+    }
+    const existing = animClips[cycleId];
+    if (existing) {
+      setActiveCycleId(cycleId);
+      setAnimFrame(0);
+      previewCycleFrame(existing, 0, groundAnim);
+      return;
+    }
+    setAnimBusy(true);
+    try {
+      const clip = await loadBuiltinAnimationCycle(cycleId);
+      setAnimClips(prev => ({ ...prev, [clip.id]: clip }));
+      setActiveCycleId(clip.id);
+      setAnimFrame(0);
+      previewCycleFrame(clip, 0, groundAnim);
+    } catch (e) {
+      report(e);
+    } finally {
+      setAnimBusy(false);
     }
   };
+
+  const importAnimFile = async (f: File) => {
+    setAnimPlaying(false);
+    setAnimBusy(true);
+    try {
+      if (f.size > MAX_ANIMATION_FILE_BYTES) {
+        throw new Error(`Animation file exceeds the ${Math.round(MAX_ANIMATION_FILE_BYTES / (1024 * 1024))} MB limit.`);
+      }
+      const clips = await loadUserAnimationFile(f);
+      const added: Record<string, AnimationCycleClip> = {};
+      const ids: string[] = [];
+      for (const c of clips) {
+        const uniqueId = `user:${crypto.randomUUID()}`;
+        const stored: AnimationCycleClip = { ...c, id: uniqueId };
+        added[uniqueId] = stored;
+        ids.push(uniqueId);
+      }
+      const firstId = ids[0]!;
+      const firstClip = added[firstId]!;
+      setAnimClips(prev => ({ ...prev, ...added }));
+      setUserClipIds(prev => [...ids, ...prev]);
+      setActiveCycleId(firstId);
+      setAnimFrame(0);
+      previewCycleFrame(firstClip, 0, groundAnim);
+      notify(`Loaded "${firstClip.name}" (${firstClip.frameCount} frames · ${firstClip.rigFormat} rig). Scrub slider and click Use this pose.`);
+    } catch (e) {
+      report(e);
+    } finally {
+      setAnimBusy(false);
+    }
+  };
+
+  const add = (kind: Item['kind']) => {
+    if (doc.items.length >= 64) {
+      report(new Error('Scene limit: 64 objects.'));
+      return;
+    }
+    if (kind === 'light' && doc.items.filter(i => i.kind === 'light').length >= 8) {
+      report(new Error('Scene limit: 8 lights.'));
+      return;
+    }
+    const next = createItem(kind, doc.items.filter(i => i.kind === kind).length);
+    update(d => {
+      d.items.push(next);
+    });
+    select(next.id, null);
+    setView(false);
+  };
+
+  const applyPresetPose = (presetName: (typeof PRESETS)[number]) => {
+    if (!item || !isBody(item.kind)) return;
+    setAnimPlaying(false);
+    setAnimPreviewing(false);
+    const nextPose = preset(presetName);
+    const groundedY = engine.current?.groundPoseY(item.id, nextPose);
+    const nextPosition: Vec3 = [item.position[0], groundedY ?? item.position[1], item.position[2]];
+    editItem({ pose: nextPose, position: nextPosition });
+    setJoint(null);
+  };
+
+  const loadPortable = (data: Portable) => {
+    setAnimPlaying(false);
+    setAnimPreviewing(false);
+    const valid = validatePortable(data);
+    if (valid.type === 'scene') {
+      commit(valid);
+      setSelected(valid.items[0]?.id ?? null);
+      setJoint(null);
+      notify('Scene loaded. Undo returns to the previous scene.');
+    } else {
+      if (!item || !isBody(item.kind)) throw new Error('Select a figure before loading a pose.');
+      editItem(applyPose(item, valid));
+      notify(`Applied "${valid.name}" to ${item.name}. Root transform preserved.`);
+    }
+  };
+
   const save = async (type: 'scene' | 'pose') => {
     setBusy(true);
     try {
       const data = type === 'scene' ? { ...doc, name: saveName.trim() } : poseFile(item!, saveName.trim());
-      await saveLocal(data); setSaved(await listSaved()); notify(`${type === 'scene' ? 'Scene' : 'Pose'} saved on this browser. Download JSON for a portable backup.`);
-    } catch (e) { report(e); } finally { setBusy(false); }
+      await saveLocal(data);
+      setSaved(await listSaved());
+      notify(`${type === 'scene' ? 'Scene' : 'Pose'} saved on this browser.`);
+    } catch (e) {
+      report(e);
+    } finally {
+      setBusy(false);
+    }
   };
+
   const exportJson = (type: 'scene' | 'pose') => {
-    try { download(validatePortable(type === 'scene' ? { ...doc, name: saveName.trim() || doc.name } : poseFile(item!, saveName.trim() || 'My pose'))); notify(`${type} JSON downloaded.`); } catch (e) { report(e); }
+    try {
+      download(validatePortable(type === 'scene' ? { ...doc, name: saveName.trim() || doc.name } : poseFile(item!, saveName.trim() || 'My pose')));
+      notify(`${label(type)} JSON downloaded.`);
+    } catch (e) {
+      report(e);
+    }
   };
+
   const png = async () => {
     setBusy(true);
     try {
       if (!engine.current) throw new Error('3D viewport is unavailable.');
-      downloadBlob(await engine.current.exportPng(), 'composition.png'); notify('1600 px camera composition exported as PNG.');
-    } catch (e) { report(e); } finally { setBusy(false); }
+      downloadBlob(await engine.current.exportPng(), 'composition.png');
+      notify('1600 px camera composition exported as PNG.');
+    } catch (e) {
+      report(e);
+    } finally {
+      setBusy(false);
+    }
   };
+
+  const propOptions = useMemo<SelectOption[]>(
+    () =>
+      PROP_KINDS.map(k => ({
+        value: k,
+        label: label(k),
+        meta: PROP_META[k],
+        icon: Icons.prop,
+      })),
+    [],
+  );
+
+  const hairOptions = useMemo<SelectOption[]>(
+    () =>
+      HAIR_STYLES.map(id => ({
+        value: id,
+        label: HAIR_STYLE_LABELS[id],
+      })),
+    [],
+  );
+
+  const jointOptions = useMemo<SelectOption[]>(
+    () => [
+      { value: '__root__', label: 'Root · whole figure', group: 'Transform target', meta: 'Move / Rotate' },
+      ...JOINTS.map(j => ({
+        value: j,
+        label: label(j),
+        group: JOINT_GROUPS[j],
+      })),
+    ],
+    [],
+  );
+
+  const animOptions = useMemo<SelectOption[]>(() => {
+    const list: SelectOption[] = [];
+    for (const id of userClipIds) {
+      const c = animClips[id];
+      if (c) {
+        list.push({
+          value: id,
+          label: c.name,
+          group: 'Imported Mixamo / Custom',
+          meta: `${c.frameCount}f`,
+          icon: Icons.motion,
+        });
+      }
+    }
+    for (const cat of ANIM_CATEGORIES) {
+      for (const c of BUILTIN_ANIMATION_CYCLES) {
+        if (c.category === cat) {
+          list.push({
+            value: c.id,
+            label: c.name,
+            group: cat,
+            meta: 'CC0',
+            icon: Icons.motion,
+          });
+        }
+      }
+    }
+    return list;
+  }, [userClipIds, animClips]);
+
+  const activePreset = useMemo(() => {
+    if (!item || !isBody(item.kind) || !item.pose || animPreviewing) return null;
+    for (const p of PRESETS) {
+      if (posesMatch(item.pose, preset(p))) return p;
+    }
+    return null;
+  }, [item, animPreviewing]);
+
   void historyTick;
-  return <div className="app">
-    <header className="topbar">
-      <a className="brand" href="./" aria-label="Pose and Composition home"><span className="brand-mark">P/C</span><span>Pose & Composition<small>FIGURE STUDIO / LOCAL FIRST</small></span></a>
-      <div className="top-actions">
-        <button onClick={() => undo()} disabled={!past.current.length} title="Undo · Ctrl Z">Undo</button>
-        <button onClick={() => undo(true)} disabled={!future.current.length} title="Redo · Ctrl Shift Z">Redo</button>
-        <button onClick={() => setTab('library')}>Save / Load</button>
-        <button onClick={() => setHelp(true)}>Help <kbd>?</kbd></button>
-        <button className="primary" onClick={png} disabled={busy || loading || loadError !== null}>Export PNG</button>
-      </div>
-    </header>
-    <div className="workspace" inert={loading || loadError !== null}>
-      <aside className="scene-panel" aria-label="Scene objects">
-        <div className="panel-heading"><h2>Scene</h2><span className="badge">{doc.items.length} objects</span></div>
-        <div className="scroll">
-          <section><h3>Add a figure</h3><div className="two"><button onClick={() => add('male')}>+ Male</button><button onClick={() => add('female')}>+ Female</button></div></section>
-          <section><h3>Objects & lighting</h3><label className="sr-only" htmlFor="add-prop">Add prop</label><select id="add-prop" value="" onChange={e => { if (e.target.value) add(e.target.value as Item['kind']); }}><option value="">+ Add a prop…</option>{PROP_KINDS.map(k => <option key={k} value={k}>{label(k)}</option>)}</select><button className="wide" onClick={() => add('light')}>+ Studio light</button></section>
-          <div className="object-list" role="list" aria-label="Object list">{doc.items.map(i => <button role="listitem" key={i.id} className={`object-row ${i.id === selected ? 'selected' : ''}`} onClick={() => select(i.id, null)}><span className="object-icon">{isBody(i.kind) ? '○' : i.kind === 'light' ? '☼' : '◇'}</span><span>{i.name}<small>{isBody(i.kind) ? 'Rigged figure' : label(i.kind)}</small></span></button>)}</div>
-          <section className="hint"><strong>Your private studio</strong><p>Nothing is uploaded. Save locally or download a scene file to keep your work.</p></section>
+
+  return (
+    <div className="app">
+      <header className="topbar">
+        <a className="brand" href="./" aria-label="Pose and Composition home">
+          <span className="brand-mark">P/C</span>
+          <span className="brand-copy">
+            <strong>Pose & Composition</strong>
+            <small>FIGURE STUDIO · LOCAL FIRST</small>
+          </span>
+        </a>
+        <div className="top-actions">
+          <button type="button" onClick={() => undo()} disabled={!past.current.length} title="Undo · Ctrl Z">
+            Undo
+          </button>
+          <button type="button" onClick={() => undo(true)} disabled={!future.current.length} title="Redo · Ctrl Shift Z">
+            Redo
+          </button>
+          <button type="button" onClick={() => setTab('library')}>
+            Library
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            onClick={toggleTheme}
+          >
+            {theme === 'dark' ? Icons.sun : Icons.moon}
+          </button>
+          <button type="button" onClick={() => setHelp(true)}>
+            Help <kbd>?</kbd>
+          </button>
+          <button type="button" className="primary" onClick={png} disabled={busy || loading || loadError !== null}>
+            Export PNG
+          </button>
         </div>
-      </aside>
-      <main className="viewport-column">
-        <div className="viewport-toolbar">
-          <div className="segmented" aria-label="Transform mode">{(['translate', 'rotate', 'scale'] as const).map((m, n) => <button key={m} className={!joint && mode === m ? 'active' : ''} onClick={() => { setJoint(null); setMode(m); }} disabled={view}>{['Move', 'Rotate', 'Scale'][n]} <kbd>{['W', 'E', 'R'][n]}</kbd></button>)}</div>
-          <div className="toolbar-right"><button onClick={() => engine.current?.focusSelected()} disabled={view}>Frame <kbd>F</kbd></button><button className={view ? 'active' : ''} onClick={() => setView(!view)}>{view ? 'Return to editor' : 'Camera view'} <kbd>C</kbd></button></div>
-        </div>
-        <div className={`viewport ${view ? 'camera-view' : ''}`}>
-          <div ref={host} className="canvas-host" />
-          <div className="viewport-caption"><span className="view-pill">{view ? `COMPOSITION / ${doc.camera.focalLength} mm / ${doc.camera.aspect}${doc.camera.dof ? ' / DOF ON' : ''}` : joint ? `LOCAL JOINT / ${label(joint)}` : 'PERSPECTIVE / EDITOR'}</span></div>
-          {!view && <div className="viewport-bottom"><span>Drag: orbit · Right drag: pan · Scroll: zoom</span><button onClick={() => setHelp(true)}>Controls & workflow</button></div>}
-        </div>
-        <footer className="statusbar"><span>{item ? `${item.name}${joint ? ` / ${label(joint)}` : ' / Root transform'}` : 'Select an object to begin'}</span><span>{view ? 'Camera view · editor helpers hidden' : 'Meters · FK posing · WebGL'} · <a href={`${import.meta.env.BASE_URL}THIRD_PARTY_NOTICES.txt`} target="_blank" rel="noreferrer">Licenses</a></span></footer>
-      </main>
-      <aside className="inspector" aria-label="Inspector">
-        <div className="tabs" role="tablist">{(['object', 'camera', 'library'] as const).map(t => <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{label(t)}</button>)}</div>
-        <div className="scroll inspector-content">
-          {tab === 'object' && (item ? <>
-            <section><div className="eyebrow">{isBody(item.kind) ? 'POSE / FIGURE' : item.kind === 'light' ? 'COMPOSE / LIGHT' : 'COMPOSE / PROP'}</div><h2>{item.name}</h2><label>Name<input aria-label="Object name" value={item.name} maxLength={80} onChange={e => editItem({ name: e.target.value })} /></label><label className="color-row">Surface color<input aria-label="Object color" type="color" value={item.color} onChange={e => editItem({ color: e.target.value })} /></label>{isBody(item.kind) && <><label className="color-row">Hair color<input aria-label="Hair color" type="color" value={item.hairColor ?? DEFAULT_HAIR_COLOR} onChange={e => editItem({ hairColor: e.target.value })} /></label><p className="muted">Scalp hair, eyebrows and eyelashes. Saved with the scene, not the pose.</p></>}</section>
-            {isBody(item.kind) && item.pose && <section>
-              <h3>Pose the figure</h3><p className="muted">Click a figure, then a gold node on its body. The selected node turns coral. Drag a colored rotation ring to pose it; drag away from nodes and rings to orbit.</p>
-              <label>Editing<select aria-label="Editing joint" value={joint ?? ''} onChange={e => setJoint(e.target.value ? e.target.value as Joint : null)}><option value="">Root · whole figure</option>{JOINTS.map(j => <option value={j} key={j}>{label(j)}</option>)}</select></label>
-              {joint && <><Vector label="Joint rotation (°)" value={item.pose[joint].map(degrees) as Vec3} min={-360} max={360} step={5} onChange={v => { const p = clone(item.pose!); p[joint] = v.map(radians) as Vec3; editItem({ pose: p }); }} /><button onClick={() => { const p = clone(item.pose!); p[joint] = [0, 0, 0]; editItem({ pose: p }); }}>Reset this joint</button></>}
-              <label>Preset pose<select aria-label="Preset pose" value="" onChange={e => { if (e.target.value) { editItem({ pose: preset(e.target.value as typeof PRESETS[number]) }); setJoint(null); } }}><option value="">Choose a starting pose…</option>{PRESETS.map(p => <option key={p}>{p}</option>)}</select></label>
-              <p className="muted">Presets change joints only. For Seated or Kneeling, lower the root to meet your furniture or floor.</p>
-              <div className="two"><button onClick={() => { editItem({ pose: preset('Neutral') }); setJoint(null); }}>Neutral / reset</button><button onClick={() => setTab('library')}>Save pose…</button></div>
-            </section>}
-            <section><h3>Root transform</h3><Vector label="Position (m)" value={item.position} min={-100} max={100} onChange={position => editItem({ position })} /><Vector label="Rotation (°)" value={item.rotation.map(degrees) as Vec3} min={-360} max={360} step={5} onChange={v => editItem({ rotation: v.map(radians) as Vec3 })} /><Vector label="Scale" value={item.scale} min={0.05} max={10} onChange={scale => editItem({ scale })} /></section>
-            {item.kind === 'light' && <section><h3>Real-time studio light</h3><p className="muted">Spot light points from its position toward this target. Rotation does not change aim.</p><Vector label="Light target (m)" value={item.target!} min={-100} max={100} onChange={target => editItem({ target })} /><NumberField label="Intensity" value={item.intensity!} min={0} max={200} step={1} onChange={intensity => editItem({ intensity })} /></section>}
-            <section><div className="two"><button onClick={() => { const copy = clone(item); copy.id = crypto.randomUUID(); copy.name = `${item.name.slice(0, 70)} copy`; copy.position[0] += 0.6; update(d => d.items.push(copy)); select(copy.id, null); }} disabled={doc.items.length >= 64 || (item.kind === 'light' && doc.items.filter(i => i.kind === 'light').length >= 8)}>Duplicate</button><button className="danger" onClick={removeSelected}>Delete object</button></div></section>
-          </> : <section><h2>Start a study</h2><p>Select a figure or prop in the scene, or add one using the left panel.</p></section>)}
-          {tab === 'camera' && <>
-            <section><div className="eyebrow">COMPOSE / CAMERA</div><h2>Find your frame</h2><p className="muted">Composition camera is independent of editor navigation.</p><div className="two"><button className={view ? 'active' : ''} onClick={() => setView(!view)}>{view ? 'Editor view' : 'Inspect camera'}</button><button onClick={() => { const c = engine.current?.useEditorCamera(); if (c) editCamera(c); }}>Use editor angle</button></div></section>
-            <section><Vector label="Camera position (m)" value={doc.camera.position} min={-100} max={100} onChange={position => editCamera({ position })} /><Vector label="Aim target (m)" value={doc.camera.target} min={-100} max={100} onChange={target => editCamera({ target })} /><NumberField label="Lens (mm)" value={doc.camera.focalLength} min={15} max={150} step={1} onChange={focalLength => editCamera({ focalLength })} /><p className="muted">36 mm film gauge · horizontal fit in landscape · perspective lens.</p><label>Output aspect<select aria-label="Output aspect" value={doc.camera.aspect} onChange={e => editCamera({ aspect: e.target.value as SceneState['camera']['aspect'] })}>{['3:2', '16:9', '1:1', '4:5'].map(a => <option key={a}>{a}</option>)}</select></label><div className="two"><NumberField label="Near clip (m)" value={doc.camera.near} min={0.01} max={Math.min(10, doc.camera.far - 0.01)} onChange={near => editCamera({ near })} /><NumberField label="Far clip (m)" value={doc.camera.far} min={Math.max(1, doc.camera.near + 0.01)} max={500} step={1} onChange={far => editCamera({ far })} /></div></section>
-            <section><h3>Depth of field</h3><label className="check"><input type="checkbox" checked={doc.camera.dof} onChange={e => editCamera({ dof: e.target.checked })} />Enable real lens blur</label><p className="muted">Rendered in camera view and PNG only. Off = direct rendering, no postprocessing passes.</p><NumberField label="Focus distance (m)" value={doc.camera.focus} min={0.1} max={100} onChange={focus => editCamera({ focus })} /><NumberField label="Aperture / blur strength" value={doc.camera.aperture} min={0.00001} max={0.005} step={0.00005} onChange={aperture => editCamera({ aperture })} /><NumberField label="Maximum blur" value={doc.camera.maxBlur} min={0.001} max={0.05} step={0.001} onChange={maxBlur => editCamera({ maxBlur })} /><button onClick={() => { const focus = engine.current?.selectedFocusDistance(); if (focus != null) editCamera({ focus }); }} disabled={!item}>Focus on selected object</button></section>
-            <section><h3>Stage</h3><label className="color-row">Background<input aria-label="Background color" type="color" value={doc.background} onChange={e => update(d => { d.background = e.target.value; })} /></label><button className="primary wide" onClick={png} disabled={busy}>Export camera PNG</button></section>
-          </>}
-          {tab === 'library' && <>
-            <section><div className="eyebrow">SAVE / LOCAL & PORTABLE</div><h2>Your studies</h2><p className="muted">Local saves stay in this browser. Clearing site data removes them. Same name replaces that local entry.</p><label>Save name<input aria-label="Save name" value={saveName} maxLength={80} onChange={e => setSaveName(e.target.value)} /></label><div className="two"><button className="primary" disabled={busy || !saveName.trim()} onClick={() => save('scene')}>Save scene</button><button disabled={busy || !saveName.trim() || !item || !isBody(item.kind)} onClick={() => save('pose')}>Save pose</button></div></section>
-            <section><h3>Portable files</h3><div className="two"><button onClick={() => exportJson('scene')}>Scene JSON ↓</button><button disabled={!item || !isBody(item.kind)} onClick={() => exportJson('pose')}>Pose JSON ↓</button></div><button className="wide" onClick={() => file.current?.click()}>Import pose / scene JSON…</button><p className="muted">Versioned v1 files · max 1 MB / 64 objects / 8 lights. Scene imports replace the scene (undo available). Poses apply to the selected figure; both bodies share the semantic rig.</p>
-              <input ref={file} className="sr-only" aria-label="Import JSON file" type="file" accept=".json,application/json" onChange={async e => { const f = e.target.files?.[0]; if (!f) return; try { if (f.size > MAX_FILE_BYTES) throw new Error('File exceeds the 1 MB import limit.'); loadPortable(parseFile(await f.text())); } catch (err) { report(err); } finally { e.target.value = ''; } }} />
+      </header>
+
+      <div className="workspace" inert={loading || loadError !== null}>
+        <aside className="scene-panel" aria-label="Scene objects">
+          <div className="panel-heading">
+            <h2>Scene</h2>
+            <span className="pill-badge">{doc.items.length}</span>
+          </div>
+          <div className="scroll">
+            <section>
+              <h3>Add to stage</h3>
+              <div className="two">
+                <button type="button" onClick={() => add('male')}>
+                  {Icons.plus} Male
+                </button>
+                <button type="button" onClick={() => add('female')}>
+                  {Icons.plus} Female
+                </button>
+              </div>
+              <div className="stack-gap">
+                <SelectDropdown
+                  id="add-prop"
+                  ariaLabel="Add prop"
+                  value=""
+                  actionMenu
+                  leadingIcon={Icons.plus}
+                  placeholder="Add studio prop…"
+                  options={propOptions}
+                  onChange={v => add(v as Item['kind'])}
+                />
+                <button type="button" className="full-btn" onClick={() => add('light')}>
+                  {Icons.light} Add studio light
+                </button>
+              </div>
             </section>
-            <section><h3>Saved on this browser <span className="badge">{saved.length}</span></h3>{saved.length === 0 && <p className="muted">No saved studies yet.</p>}{saved.map(s => <div className="saved-row" key={s.id}><button onClick={() => { try { loadPortable(s.data); } catch (e) { report(e); } }}><strong>{s.name}</strong><small>{label(s.type)} · {new Date(s.savedAt).toLocaleDateString()}</small></button><button aria-label={`Delete saved ${s.name}`} title="Delete this local save" onClick={async () => { try { await deleteLocal(s.id); setSaved(await listSaved()); notify('Local save deleted.'); } catch (e) { report(e); } }}>×</button></div>)}</section>
-          </>}
-          <section className="view-options"><h3>Viewport helpers</h3><label className="check"><input type="checkbox" checked={showJoints} onChange={e => preference('joints', e.target.checked)} />Selected figure joints</label><label className="check"><input type="checkbox" checked={showHelpers} onChange={e => preference('helpers', e.target.checked)} />Ground grid</label></section>
+
+            <section>
+              <div className="section-head">
+                <h3>Outliner</h3>
+                <span className="meta-note">Click to inspect</span>
+              </div>
+              {doc.items.length === 0 ? (
+                <div className="empty-card">Stage is empty. Add a figure, prop, or light above.</div>
+              ) : (
+                <ul className="list-stack" aria-label="Object list">
+                  {doc.items.map(i => {
+                    const subtitle = isBody(i.kind)
+                      ? `${label(i.kind)} · ${HAIR_STYLE_LABELS[i.hairStyle ?? defaultHairStyle(i.kind)]}`
+                      : i.kind === 'light'
+                        ? `Spot light · ${Math.round(i.intensity ?? 30)} lx`
+                        : `${label(i.kind)} prop`;
+                    return (
+                      <ListRow
+                        key={i.id}
+                        icon={isBody(i.kind) ? Icons.figure : i.kind === 'light' ? Icons.light : Icons.prop}
+                        title={i.name}
+                        meta={subtitle}
+                        selected={i.id === selected}
+                        onSelect={() => select(i.id, null)}
+                        onDelete={() => removeItemById(i.id)}
+                        deleteLabel={`Delete ${i.name}`}
+                      />
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
+
+            <section className="hint">
+              <strong>Private by default</strong>
+              <p>Everything runs locally in your browser. Save studies to IndexedDB or export portable JSON files.</p>
+            </section>
+          </div>
+        </aside>
+
+        <main className="viewport-column">
+          <div className="viewport-toolbar">
+            <div className="toolbar-group">
+              <SegmentedControl
+                ariaLabel="Transform mode"
+                value={mode}
+                disabled={view}
+                items={[
+                  { value: 'translate', label: 'Move', shortcut: 'W' },
+                  { value: 'rotate', label: 'Rotate', shortcut: 'E' },
+                  { value: 'scale', label: 'Scale', shortcut: 'R' },
+                ]}
+                onChange={m => {
+                  setJoint(null);
+                  setMode(m);
+                }}
+              />
+              <button type="button" onClick={() => engine.current?.focusSelected()} disabled={view}>
+                Frame <kbd>F</kbd>
+              </button>
+            </div>
+            <div className="toolbar-group">
+              <SegmentedControl
+                ariaLabel="Viewport mode"
+                value={view ? 'camera' : 'editor'}
+                items={[
+                  { value: 'editor', label: 'Editor' },
+                  { value: 'camera', label: 'Camera', shortcut: 'C' },
+                ]}
+                onChange={v => setView(v === 'camera')}
+              />
+            </div>
+          </div>
+
+          <div className={`viewport ${view ? 'camera-view' : ''}`}>
+            <div ref={host} className="canvas-host" />
+            <div className="viewport-caption">
+              <span className="view-pill">
+                {view
+                  ? `COMPOSITION · ${doc.camera.focalLength} MM · ${doc.camera.aspect}${doc.camera.dof ? ' · DOF' : ''}`
+                  : joint
+                    ? `JOINT FK · ${label(joint).toUpperCase()}`
+                    : 'PERSPECTIVE · EDITOR'}
+              </span>
+            </div>
+            {!view && (
+              <div className="viewport-bottom">
+                <span className="hud-chip">Left drag: orbit · Right drag: pan · Wheel: zoom</span>
+                <button type="button" className="hud-btn" onClick={() => setHelp(true)}>
+                  Controls & workflow
+                </button>
+              </div>
+            )}
+          </div>
+
+          <footer className="statusbar">
+            <span>{item ? `${item.name}${joint ? ` · ${label(joint)}` : ' · Root transform'}` : 'Select an object to begin'}</span>
+            <span>
+              {view ? 'Camera view · editor helpers hidden' : 'Meters · 17-joint FK rig · WebGL'} ·{' '}
+              <a href={`${import.meta.env.BASE_URL}THIRD_PARTY_NOTICES.txt`} target="_blank" rel="noreferrer">
+                Licenses
+              </a>
+            </span>
+          </footer>
+        </main>
+
+        <aside className="inspector" aria-label="Inspector">
+          <div className="inspector-tabs">
+            <SegmentedControl
+              ariaLabel="Inspector tabs"
+              role="tablist"
+              fullWidth
+              value={tab}
+              items={[
+                { value: 'object', label: 'Object' },
+                { value: 'camera', label: 'Camera' },
+                { value: 'library', label: 'Library' },
+              ]}
+              onChange={setTab}
+            />
+          </div>
+
+          <div className="scroll inspector-content">
+            {tab === 'object' &&
+              (item ? (
+                <>
+                  <section>
+                    <div className="eyebrow">
+                      {isBody(item.kind) ? 'POSE · FIGURE' : item.kind === 'light' ? 'STAGE · LIGHT' : 'STAGE · PROP'}
+                    </div>
+                    <h2>{item.name}</h2>
+                    <div className="field-block">
+                      <label className="text-field">
+                        <span className="field-label">Name</span>
+                        <input
+                          aria-label="Object name"
+                          value={item.name}
+                          maxLength={80}
+                          onChange={e => editItem({ name: e.target.value })}
+                        />
+                      </label>
+                      <ColorField
+                        label={item.kind === 'light' ? 'Light color' : 'Surface tint'}
+                        value={item.color}
+                        onChange={color => editItem({ color })}
+                      />
+                      {isBody(item.kind) && (
+                        <>
+                          <div className="select-field">
+                            <span className="field-label">Hairstyle</span>
+                            <SelectDropdown
+                              ariaLabel="Hairstyle"
+                              value={item.hairStyle ?? defaultHairStyle(item.kind)}
+                              options={hairOptions}
+                              onChange={v => editItem({ hairStyle: v as HairStyleId })}
+                            />
+                          </div>
+                          <ColorField
+                            label="Hair & brow color"
+                            value={item.hairColor ?? DEFAULT_HAIR_COLOR}
+                            onChange={hairColor => editItem({ hairColor })}
+                          />
+                        </>
+                      )}
+                    </div>
+                  </section>
+
+                  {isBody(item.kind) && item.pose && (
+                    <section>
+                      <div className="section-head">
+                        <h3>Joint & preset posing</h3>
+                        <span className="pill-badge">{joint ? label(joint) : 'Root'}</span>
+                      </div>
+                      <p className="muted">
+                        Click any gold marker on the figure (turns coral) and drag its rotation rings, or pick a joint below.
+                      </p>
+
+                      <div className="select-field">
+                        <span className="field-label">Editing target</span>
+                        <SelectDropdown
+                          ariaLabel="Editing joint"
+                          value={joint ?? '__root__'}
+                          options={jointOptions}
+                          onChange={v => setJoint(v === '__root__' ? null : (v as Joint))}
+                        />
+                      </div>
+
+                      {joint && (
+                        <Vector3Field
+                          label="Joint rotation (°)"
+                          value={item.pose[joint].map(degrees) as Vec3}
+                          min={-360}
+                          max={360}
+                          step={5}
+                          precision={1}
+                          onChange={v => {
+                            const p = clone(item.pose!);
+                            p[joint] = v.map(radians) as Vec3;
+                            editItem({ pose: p });
+                          }}
+                          onReset={() => {
+                            const p = clone(item.pose!);
+                            p[joint] = [0, 0, 0];
+                            editItem({ pose: p });
+                          }}
+                        />
+                      )}
+
+                      <div className="preset-block">
+                        <div className="field-head">
+                          <span className="field-label">Studio presets</span>
+                          <span className="meta-note">Auto-grounded</span>
+                        </div>
+                        <div className="preset-grid" role="list" aria-label="Preset poses">
+                          {PRESETS.map(p => {
+                            const isCurrent = activePreset === p;
+                            return (
+                              <button
+                                key={p}
+                                type="button"
+                                role="listitem"
+                                className={isCurrent ? 'preset-tile active' : 'preset-tile'}
+                                onClick={() => applyPresetPose(p)}
+                              >
+                                <span>{p}</span>
+                                {isCurrent && <span className="preset-check">{Icons.check}</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="two">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const groundedY = engine.current?.groundPoseY(item.id, item.pose);
+                            if (groundedY !== null && groundedY !== undefined) {
+                              editItem({ position: [item.position[0], groundedY, item.position[2]] });
+                            }
+                          }}
+                        >
+                          Snap to floor
+                        </button>
+                        <button type="button" onClick={() => setTab('library')}>
+                          Save pose…
+                        </button>
+                      </div>
+                    </section>
+                  )}
+
+                  {isBody(item.kind) && item.pose && (
+                    <section aria-label="Pose from animation">
+                      <div className="section-head">
+                        <h3>Pose from animation</h3>
+                        <span className="pill-badge">
+                          {activeClip ? (activeClip.source === 'file' ? `${activeClip.rigFormat}` : 'CC0') : 'Mixamo · CC0'}
+                        </span>
+                      </div>
+                      <p className="muted">
+                        Choose a motion cycle or import a Mixamo <code>.fbx</code> / <code>.glb</code> clip locally, scrub the frame slider, then apply that frame as an editable pose.
+                      </p>
+
+                      <div className="select-field">
+                        <span className="field-label">Animation cycle</span>
+                        <SelectDropdown
+                          ariaLabel="Animation cycle"
+                          value={activeCycleId}
+                          placeholder={animBusy ? 'Loading animation…' : 'Select motion cycle…'}
+                          leadingIcon={Icons.motion}
+                          options={animOptions}
+                          onChange={id => {
+                            void chooseCycle(id);
+                          }}
+                        />
+                      </div>
+
+                      <button type="button" className="full-btn" disabled={animBusy} onClick={() => animFile.current?.click()}>
+                        {Icons.upload} Import Mixamo (.fbx / .glb)…
+                      </button>
+                      <input
+                        ref={animFile}
+                        className="sr-only"
+                        aria-label="Import animation file"
+                        type="file"
+                        accept={ANIMATION_ACCEPT_EXTENSIONS}
+                        onChange={async e => {
+                          const f = e.target.files?.[0];
+                          e.target.value = '';
+                          if (f) await importAnimFile(f);
+                        }}
+                      />
+
+                      {activeClip && (
+                        <div className="anim-controls">
+                          <SliderField
+                            label="Frame timeline"
+                            ariaLabel="Animation frame"
+                            min={0}
+                            max={Math.max(0, activeClip.frameCount - 1)}
+                            step={1}
+                            value={Math.min(animFrame, Math.max(0, activeClip.frameCount - 1))}
+                            displayValue={`F${Math.min(animFrame, Math.max(0, activeClip.frameCount - 1)) + 1}/${activeClip.frameCount} · ${(
+                              (activeClip.frameCount > 1 ? animFrame / (activeClip.frameCount - 1) : 0) * activeClip.duration
+                            ).toFixed(2)}s`}
+                            onChange={nextFrame => {
+                              setAnimPlaying(false);
+                              setAnimFrame(nextFrame);
+                              previewCycleFrame(activeClip, nextFrame, groundAnim, item);
+                            }}
+                          />
+
+                          <SwitchRow
+                            label="Ground figure to floor"
+                            description="Plant feet or knees on studio floor"
+                            checked={groundAnim}
+                            onChange={checked => {
+                              setGroundAnim(checked);
+                              previewCycleFrame(activeClip, animFrame, checked, item);
+                            }}
+                          />
+
+                          {animPreviewing && (
+                            <div className="callout-banner">
+                              Previewing frame <strong>{animFrame + 1}</strong> on {item.name}. Click <strong>Use this pose</strong> to commit to FK joints.
+                            </div>
+                          )}
+
+                          <div className="two">
+                            <button
+                              type="button"
+                              className={animPlaying ? 'active' : ''}
+                              onClick={() => setAnimPlaying(p => !p)}
+                              disabled={activeClip.frameCount <= 1}
+                            >
+                              {animPlaying ? Icons.pause : Icons.play}
+                              {animPlaying ? 'Pause cycle' : 'Play cycle'}
+                            </button>
+                            <button type="button" className="primary" onClick={() => applyActiveAnimPose(false)}>
+                              {Icons.check} Use this pose
+                            </button>
+                          </div>
+
+                          {animPreviewing && (
+                            <button type="button" className="full-btn" onClick={cancelAnimPreview}>
+                              Cancel preview
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </section>
+                  )}
+
+                  <section>
+                    <h3>Root transform</h3>
+                    <Vector3Field
+                      label="Position (m)"
+                      value={item.position}
+                      min={-100}
+                      max={100}
+                      onChange={position => editItem({ position })}
+                    />
+                    <Vector3Field
+                      label="Rotation (°)"
+                      value={item.rotation.map(degrees) as Vec3}
+                      min={-360}
+                      max={360}
+                      step={5}
+                      precision={1}
+                      onChange={v => editItem({ rotation: v.map(radians) as Vec3 })}
+                    />
+                    <Vector3Field
+                      label="Scale"
+                      value={item.scale}
+                      min={0.05}
+                      max={10}
+                      onChange={scale => editItem({ scale })}
+                    />
+                  </section>
+
+                  {item.kind === 'light' && (
+                    <section>
+                      <h3>Studio spotlight</h3>
+                      <p className="muted">Points from root position toward the aim target below.</p>
+                      <Vector3Field
+                        label="Light target (m)"
+                        value={item.target!}
+                        min={-100}
+                        max={100}
+                        onChange={target => editItem({ target })}
+                      />
+                      <SliderField
+                        label="Intensity"
+                        value={item.intensity ?? 30}
+                        min={0}
+                        max={200}
+                        step={1}
+                        displayValue={`${Math.round(item.intensity ?? 30)} lx`}
+                        onChange={intensity => editItem({ intensity })}
+                      />
+                    </section>
+                  )}
+
+                  <section>
+                    <div className="two">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const copy = clone(item);
+                          copy.id = crypto.randomUUID();
+                          copy.name = `${item.name.slice(0, 70)} copy`;
+                          copy.position[0] += 0.6;
+                          update(d => d.items.push(copy));
+                          select(copy.id, null);
+                        }}
+                        disabled={doc.items.length >= 64 || (item.kind === 'light' && doc.items.filter(i => i.kind === 'light').length >= 8)}
+                      >
+                        Duplicate
+                      </button>
+                      <button type="button" className="danger" onClick={removeSelected}>
+                        {Icons.trash} Delete object
+                      </button>
+                    </div>
+                  </section>
+                </>
+              ) : (
+                <section>
+                  <h2>No object selected</h2>
+                  <p className="muted">Choose a figure, prop, or light in the Scene outliner on the left, or add a new item to begin.</p>
+                </section>
+              ))}
+
+            {tab === 'camera' && (
+              <>
+                <section>
+                  <div className="eyebrow">COMPOSE · CAMERA</div>
+                  <h2>Composition frame</h2>
+                  <p className="muted">Independent from your perspective editor orbit camera.</p>
+                  <div className="two">
+                    <button type="button" className={view ? 'active' : ''} onClick={() => setView(!view)}>
+                      {view ? 'Return to editor' : 'Inspect camera'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const c = engine.current?.useEditorCamera();
+                        if (c) editCamera(c);
+                      }}
+                    >
+                      Match editor view
+                    </button>
+                  </div>
+                </section>
+
+                <section>
+                  <h3>Lens & framing</h3>
+                  <Vector3Field
+                    label="Camera position (m)"
+                    value={doc.camera.position}
+                    min={-100}
+                    max={100}
+                    onChange={position => editCamera({ position })}
+                  />
+                  <Vector3Field
+                    label="Aim target (m)"
+                    value={doc.camera.target}
+                    min={-100}
+                    max={100}
+                    onChange={target => editCamera({ target })}
+                  />
+                  <SliderField
+                    label="Focal length"
+                    ariaLabel="Lens (mm)"
+                    value={doc.camera.focalLength}
+                    min={15}
+                    max={150}
+                    step={1}
+                    displayValue={`${doc.camera.focalLength} mm`}
+                    onChange={focalLength => editCamera({ focalLength })}
+                  />
+                  <div className="select-field">
+                    <span className="field-label">Output aspect ratio</span>
+                    <SegmentedControl
+                      ariaLabel="Output aspect"
+                      fullWidth
+                      value={doc.camera.aspect}
+                      items={[
+                        { value: '3:2', label: '3:2' },
+                        { value: '16:9', label: '16:9' },
+                        { value: '1:1', label: '1:1' },
+                        { value: '4:5', label: '4:5' },
+                      ]}
+                      onChange={aspect => editCamera({ aspect })}
+                    />
+                  </div>
+                  <div className="two">
+                    <NumericField
+                      label="Near clip (m)"
+                      ariaLabel="Near clip (m)"
+                      value={doc.camera.near}
+                      min={0.01}
+                      max={Math.min(10, doc.camera.far - 0.01)}
+                      onChange={near => editCamera({ near })}
+                    />
+                    <NumericField
+                      label="Far clip (m)"
+                      ariaLabel="Far clip (m)"
+                      value={doc.camera.far}
+                      min={Math.max(1, doc.camera.near + 0.01)}
+                      max={500}
+                      step={1}
+                      onChange={far => editCamera({ far })}
+                    />
+                  </div>
+                </section>
+
+                <section>
+                  <h3>Depth of field</h3>
+                  <SwitchRow
+                    label="Enable real lens blur"
+                    description="Rendered in Camera view and exported PNG"
+                    checked={doc.camera.dof}
+                    onChange={dof => editCamera({ dof })}
+                  />
+                  <div className="stack-gap">
+                    <NumericField
+                      label="Focus distance (m)"
+                      ariaLabel="Focus distance (m)"
+                      value={doc.camera.focus}
+                      min={0.1}
+                      max={100}
+                      onChange={focus => editCamera({ focus })}
+                    />
+                    <div className="two">
+                      <NumericField
+                        label="Aperture"
+                        ariaLabel="Aperture / blur strength"
+                        value={doc.camera.aperture}
+                        min={0.00001}
+                        max={0.005}
+                        step={0.00005}
+                        precision={5}
+                        onChange={aperture => editCamera({ aperture })}
+                      />
+                      <NumericField
+                        label="Max blur"
+                        ariaLabel="Maximum blur"
+                        value={doc.camera.maxBlur}
+                        min={0.001}
+                        max={0.05}
+                        step={0.001}
+                        precision={3}
+                        onChange={maxBlur => editCamera({ maxBlur })}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="full-btn"
+                      onClick={() => {
+                        const focus = engine.current?.selectedFocusDistance();
+                        if (focus != null) editCamera({ focus });
+                      }}
+                      disabled={!item}
+                    >
+                      Focus on selected object
+                    </button>
+                  </div>
+                </section>
+
+                <section>
+                  <h3>Stage backdrop</h3>
+                  <ColorField
+                    label="Background color"
+                    value={doc.background}
+                    onChange={background =>
+                      update(d => {
+                        d.background = background;
+                      })
+                    }
+                  />
+                  <button type="button" className="primary full-btn" onClick={png} disabled={busy}>
+                    Export camera PNG
+                  </button>
+                </section>
+              </>
+            )}
+
+            {tab === 'library' && (
+              <>
+                <section>
+                  <div className="eyebrow">LIBRARY · LOCAL & PORTABLE</div>
+                  <h2>Save study</h2>
+                  <p className="muted">Stored privately in this browser (IndexedDB). Saving with an existing name updates that entry.</p>
+                  <label className="text-field">
+                    <span className="field-label">Study name</span>
+                    <input
+                      aria-label="Save name"
+                      value={saveName}
+                      maxLength={80}
+                      onChange={e => setSaveName(e.target.value)}
+                    />
+                  </label>
+                  <div className="two">
+                    <button type="button" className="primary" disabled={busy || !saveName.trim()} onClick={() => save('scene')}>
+                      Save scene
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy || !saveName.trim() || !item || !isBody(item.kind)}
+                      onClick={() => save('pose')}
+                    >
+                      Save pose
+                    </button>
+                  </div>
+                </section>
+
+                <section>
+                  <h3>Portable JSON files</h3>
+                  <div className="two">
+                    <button type="button" onClick={() => exportJson('scene')}>
+                      {Icons.download} Scene JSON
+                    </button>
+                    <button type="button" disabled={!item || !isBody(item.kind)} onClick={() => exportJson('pose')}>
+                      {Icons.download} Pose JSON
+                    </button>
+                  </div>
+                  <button type="button" className="full-btn" onClick={() => file.current?.click()}>
+                    {Icons.upload} Import pose / scene JSON…
+                  </button>
+                  <p className="muted">
+                    Versioned v1 files · max 1 MB / 64 objects / 8 lights. Poses transfer across both male and female rigs.
+                  </p>
+                  <input
+                    ref={file}
+                    className="sr-only"
+                    aria-label="Import JSON file"
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={async e => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      try {
+                        if (f.size > MAX_FILE_BYTES) throw new Error('File exceeds the 1 MB import limit.');
+                        loadPortable(parseFile(await f.text()));
+                      } catch (err) {
+                        report(err);
+                      } finally {
+                        e.target.value = '';
+                      }
+                    }}
+                  />
+                </section>
+
+                <section>
+                  <div className="section-head">
+                    <h3>Saved on this browser</h3>
+                    <span className="pill-badge">{saved.length}</span>
+                  </div>
+                  {saved.length === 0 ? (
+                    <div className="empty-card">No saved studies yet. Name your study above and click Save scene or Save pose.</div>
+                  ) : (
+                    <ul className="list-stack" aria-label="Saved studies">
+                      {saved.map(s => (
+                        <ListRow
+                          key={s.id}
+                          icon={s.type === 'scene' ? Icons.scene : Icons.pose}
+                          title={s.name}
+                          meta={`${label(s.type)} · ${new Date(s.savedAt).toLocaleDateString()}`}
+                          onSelect={() => {
+                            try {
+                              loadPortable(s.data);
+                            } catch (e) {
+                              report(e);
+                            }
+                          }}
+                          onDelete={async () => {
+                            try {
+                              await deleteLocal(s.id);
+                              setSaved(await listSaved());
+                              notify('Local save deleted.');
+                            } catch (e) {
+                              report(e);
+                            }
+                          }}
+                          deleteLabel={`Delete saved ${s.name}`}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              </>
+            )}
+
+            <section className="view-options">
+              <h3>Viewport helpers</h3>
+              <SwitchRow
+                label="Selected figure joints"
+                description="Show clickable FK markers & rings"
+                checked={showJoints}
+                onChange={v => preference('joints', v)}
+              />
+              <SwitchRow
+                label="Studio ground grid"
+                description="Show 1 m floor grid & light helpers"
+                checked={showHelpers}
+                onChange={v => preference('helpers', v)}
+              />
+            </section>
+          </div>
+        </aside>
+      </div>
+
+      {(loading || loadError) && (
+        <div className="boot-overlay">
+          <div className={`boot-card ${loadError ? 'error' : ''}`} role={loadError ? 'alert' : 'status'}>
+            <div className="eyebrow">QUATERNIUS · CC0 RIGGED FIGURES</div>
+            <h2>{loadError ? 'The figure assets could not be loaded' : 'Opening your figure studio'}</h2>
+            <p>
+              {loadError ??
+                'Loading the sculpted male and female rigs, hairstyles, and textures locally. No scene data is uploaded.'}
+            </p>
+            {loadError && (
+              <button type="button" className="primary" onClick={() => setRetry(n => n + 1)}>
+                Retry loading figures
+              </button>
+            )}
+            <small>Your existing local scenes and poses remain untouched.</small>
+          </div>
         </div>
-      </aside>
+      )}
+
+      {notice && (
+        <div className={`toast ${notice.error ? 'error' : ''}`} role={notice.error ? 'alert' : 'status'}>
+          <span>{notice.text}</span>
+          <button type="button" className="icon-btn" aria-label="Dismiss notification" onClick={() => setNotice(null)}>
+            ×
+          </button>
+        </div>
+      )}
+
+      {help && (
+        <div className="modal-backdrop" onClick={() => setHelp(false)}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Studio help" onClick={e => e.stopPropagation()}>
+            <div className="panel-heading">
+              <h2>A small studio. A clear workflow.</h2>
+              <button type="button" className="icon-btn" onClick={() => setHelp(false)} aria-label="Close help">
+                ×
+              </button>
+            </div>
+            <div className="modal-content">
+              <h3>01 / Pose & Extract from Motion</h3>
+              <p>
+                Select a male or female figure and pick any of the 10 auto-grounded studio presets — or use{' '}
+                <strong>Pose from animation</strong> to scrub 12 built-in CC0 motion cycles or import a Mixamo{' '}
+                <code>.fbx</code> / <code>.glb</code> clip locally, scrub the frame slider, and click{' '}
+                <strong>Use this pose</strong>. Refine any of the 17 FK joints via viewport rotation rings or XYZ degrees.
+              </p>
+              <h3>02 / Style & Compose</h3>
+              <p>
+                Switch sculpted hairstyles (side-parted, shoulder-length waves, twin buns, short crop, parted + beard, or
+                bald) and tint hair, eyebrows, and eyelashes together. Add props and lights, frame your shot in Camera,
+                and export clean 1600 px PNG renders.
+              </p>
+              <h3>03 / Keep your work</h3>
+              <p>
+                Library stores named scenes and poses locally in IndexedDB, or exports portable v1 JSON files. Both body
+                types share the semantic rig so presets and animation-extracted poses transfer cleanly across figures.
+              </p>
+              <dl className="shortcuts">
+                <dt>Left drag / Right drag / Wheel</dt>
+                <dd>Orbit / Pan / Zoom</dd>
+                <dt>W / E / R</dt>
+                <dd>Root Move / Rotate / Scale</dd>
+                <dt>F / C / Escape</dt>
+                <dd>Frame selected / Toggle Camera / Root mode</dd>
+                <dt>Ctrl Z / Ctrl Shift Z</dt>
+                <dd>Undo / Redo (up to 100 steps)</dd>
+                <dt>Delete / ?</dt>
+                <dd>Delete selected / Open help</dd>
+              </dl>
+              <p className="muted">
+                Figures & sculpted hairstyles: Quaternius Universal Base Characters [Standard], CC0. Built-in motion
+                cycles: Quaternius Universal Animation Library [Standard], CC0. Imported Mixamo .fbx/.glb files are
+                processed 100% locally in your browser.
+              </p>
+              <button type="button" className="primary" onClick={() => setHelp(false)}>
+                Start creating
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
-    {(loading || loadError) && <div className="boot-overlay"><div className={`boot-card ${loadError ? 'error' : ''}`} role={loadError ? 'alert' : 'status'}><div className="eyebrow">QUATERNIUS / CC0 RIGGED FIGURES</div><h2>{loadError ? 'The figure assets could not be loaded' : 'Opening your figure studio'}</h2><p>{loadError ?? 'Loading the ready-made male and female rigs and their textures from this site. First load is about 30 MB; no scene data is uploaded.'}</p>{loadError && <button className="primary" onClick={() => setRetry(n => n + 1)}>Retry loading figures</button>}<small>Your existing local scenes and poses are not changed.</small></div></div>}
-    {notice && <div className={`toast ${notice.error ? 'error' : ''}`} role={notice.error ? 'alert' : 'status'}><span>{notice.text}</span><button aria-label="Dismiss notification" onClick={() => setNotice(null)}>×</button></div>}
-    {help && <div className="modal-backdrop" onClick={() => setHelp(false)}><div className="modal" role="dialog" aria-modal="true" aria-label="Studio help" onClick={e => e.stopPropagation()}><div className="panel-heading"><h2>A small studio. A clear workflow.</h2><button onClick={() => setHelp(false)} aria-label="Close help">×</button></div><div className="modal-content"><h3>01 / Pose</h3><p>Add or select a male/female figure. Choose a preset, then select a gold joint or use <strong>Editing</strong>. Drag a colored rotation ring or enter neutral-relative XYZ degrees. Reset a joint or the whole pose. Select Root to move the entire figure. No IK, joint limits, animation or finger posing; extreme FK rotations can intersect the body.</p><h3>02 / Compose</h3><p>Add furniture and lights. Move, rotate and scale roots. Light aim is its target, not its Euler rotation. Open Camera, set position/aim/lens/aspect or use the editor angle. Inspect Camera view. Enable lens blur and adjust focus distance. Export PNG always uses this camera, with no helpers. Surface color tints the body texture, not the eyes. Hair color independently colors scalp hair, eyebrows and eyelashes; it follows the head and is saved with the scene, not a pose.</p><h3>03 / Keep your work</h3><p>Save / Load stores named scenes and poses in IndexedDB. Download JSON for portable backups. Import validates the complete file before changing the scene. Both body types share compatible semantic joints, including v1 saves from the earlier procedural figures. Older scenes without hair color open with dark brown hair; existing saves are not rewritten. Reloading starts a fresh stage; load your named save from the library.</p><dl className="shortcuts"><dt>Left drag / right drag / wheel</dt><dd>Orbit / pan / zoom</dd><dt>W / E / R</dt><dd>Whole-object move / rotate / scale</dd><dt>F / C / Escape</dt><dd>Frame selected / camera / root editing</dd><dt>Ctrl Z / Ctrl Shift Z</dt><dd>Undo / redo (up to 100 edits)</dd><dt>Delete / ?</dt><dd>Delete selected / help</dd></dl><p className="muted">Figures: Quaternius Universal Base Characters, free Standard edition, Superhero male/female, CC0. Muscular reference bodies, not medical anatomy. Scalp hair and props are original procedural geometry. Real-time bokeh is a raster approximation, not calibrated f-stop optics. WebGL required. No uploads, telemetry, backend or accounts.</p><button className="primary" onClick={() => setHelp(false)}>Start creating</button></div></div></div>}
-  </div>;
+  );
 }
-function label(value: string) { return value.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^\w/, c => c.toUpperCase()); }
-function NumberField({ label: title, displayLabel, value, min, max, step = 0.05, onChange }: { label: string; displayLabel?: string; value: number; min: number; max: number; step?: number; onChange: (v: number) => void }) {
-  const [draft, setDraft] = useState(String(Number(value.toFixed(5))));
-  const [invalid, setInvalid] = useState(false);
-  useEffect(() => { setDraft(String(Number(value.toFixed(5)))); setInvalid(false); }, [value]);
-  const apply = () => {
-    const n = Number(draft);
-    if (!draft.trim() || !Number.isFinite(n) || n < min || n > max) { setInvalid(true); return; }
-    setInvalid(false); if (n !== value) onChange(n);
-  };
-  return <label className="number-field">{displayLabel ?? title}<input aria-label={title} aria-invalid={invalid} type="number" value={draft} min={min} max={max} step={step} onChange={e => { setDraft(e.target.value); setInvalid(false); }} onBlur={apply} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} />{invalid && <small className="error-text">Enter {min} to {max}.</small>}</label>;
+
+function label(value: string) {
+  return value.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^\w/, c => c.toUpperCase());
 }
-function Vector({ label: title, value, onChange, min, max, step }: { label: string; value: Vec3; min: number; max: number; step?: number; onChange: (v: Vec3) => void }) {
-  return <fieldset className="vector"><legend>{title}</legend><div className="three">{['X', 'Y', 'Z'].map((axis, i) => <NumberField key={axis} label={`${title} ${axis}`} displayLabel={axis} value={value[i]} min={min} max={max} step={step} onChange={n => { const next = [...value] as Vec3; next[i] = n; onChange(next); }} />)}</div></fieldset>;
-}
+

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as T from 'three';
-import { applyPose, clone, createItem, DEFAULT_HAIR_COLOR, initialScene, JOINTS, neutralPose, parseFile, poseFile, PRESETS, preset, PROP_KINDS, validatePortable } from './model';
+import { applyPose, clone, createItem, DEFAULT_HAIR_COLOR, HAIR_STYLE_IDS, initialScene, JOINTS, neutralPose, parseFile, poseFile, PRESETS, preset, PROP_KINDS, validatePortable } from './model';
 import { makeFigure, setFigurePose } from './rig';
 
 describe('portable scene and pose contracts', () => {
@@ -74,6 +74,44 @@ describe('portable scene and pose contracts', () => {
     const scene = initialScene(), candidate = { ...scene, items: [{ ...scene.items[0], hairColor }] };
     expect(() => validatePortable(candidate)).toThrow('expected #rrggbb color');
     expect(scene.items[0].hairColor).toBe(DEFAULT_HAIR_COLOR);
+  });
+  it('round-trips sculpted hairStyle, defaults legacy v1 figures, and excludes hairStyle from pose files', () => {
+    const scene = initialScene();
+    for (const style of HAIR_STYLE_IDS) {
+      scene.items[0].hairStyle = style;
+      const parsed = parseFile(JSON.stringify(scene));
+      if (parsed.type !== 'scene') throw new Error('Expected scene');
+      expect(parsed.items[0].hairStyle).toBe(style);
+    }
+    const pFile = poseFile(scene.items[0], 'Style-agnostic pose');
+    expect(pFile).not.toHaveProperty('hairStyle');
+    scene.items[1].hairStyle = 'buns';
+    expect(applyPose(scene.items[1], pFile).hairStyle).toBe('buns');
+
+    const legacy = initialScene();
+    delete legacy.items[0].hairStyle;
+    delete legacy.items[1].hairStyle;
+    const upgraded = validatePortable(legacy);
+    if (upgraded.type !== 'scene') throw new Error('Expected scene');
+    expect(upgraded.items[0].hairStyle).toBe('parted');
+    expect(upgraded.items[1].hairStyle).toBe('long');
+
+    const invalid = { ...initialScene(), items: [{ ...initialScene().items[0], hairStyle: 'mohawk-9000' }] };
+    expect(() => validatePortable(invalid)).toThrow('Invalid file');
+  });
+  it('provides 10 distinct studio presets within anatomical joint bounds', () => {
+    expect(PRESETS).toHaveLength(10);
+    const signatures = new Set<string>();
+    for (const name of PRESETS) {
+      const p = preset(name);
+      signatures.add(JSON.stringify(p));
+      for (const j of JOINTS) {
+        for (const rad of p[j]) {
+          expect(Math.abs(rad)).toBeLessThanOrEqual(Math.PI);
+        }
+      }
+    }
+    expect(signatures.size).toBe(PRESETS.length);
   });
 });
 describe('actual procedural rig and camera', () => {

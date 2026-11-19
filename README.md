@@ -34,26 +34,29 @@ the npm 11 CLI bundled alongside Node resolved it without global configuration c
 
 ## Two workflows
 
-**Pose:** Click a figure in the viewport (or its Scene row), then click a gold
+**Pose:** Click a figure in the viewport (or its Outliner row), then click any gold
 joint node on its body. The node turns coral and the local rotation rings attach
-there. Drag a colored ring to rotate that bone and its skin. No dropdown or
-preset is required. **Editing**, XYZ degrees and presets are optional alternatives.
-Save pose
-locally / download pose JSON. **Neutral / reset** resets joints, not the root.
-Seated/kneeling presets intentionally preserve root height: lower the figure to
-the floor or furniture using Root Position Y.
+there. Drag a colored ring to rotate that bone and its skin. You can also pick a
+joint from the grouped **Editing target** popover, apply any of the **10 auto-grounded
+studio presets** (`Neutral`, `Relaxed`, `Contrapposto`, `Heroic`, `Walking`,
+`Running`, `Seated`, `Kneeling`, `Crouch`, `Reach`), or use **Pose from animation**:
+choose any of the **12 built-in CC0 motion cycles** (or import a Mixamo `.fbx` /
+`.glb` / `.gltf` animation locally in your browser), scrub the **Frame timeline**
+slider with live character preview, and click **Use this pose** to commit that
+exact frame into all 17 editable FK joints with single-step Undo/Redo.
 
 **Compose:** Arrange multiple figures and props → edit studio-light position,
 target, surface color and intensity → open **Camera** → set position, aim, lens,
-aspect and focus → **Camera view** → **Export PNG** / save scene.
+aspect and focus → **Camera** view → **Export PNG** / save scene in **Library**.
 The floor is a fixed neutral stage; background color changes the space above it.
 Lamp is a furnishing; add a separate Studio light for illumination.
 
-**Appearance:** Select a figure and use **Hair color** to recolor its scalp hair,
-eyebrows and eyelashes together, independently of **Surface color**. Both figures
-have a basic short hairstyle fitted to their actual skull and attached to the
-head bone. Head/neck posing and root transforms carry it with the face. Hair color
-is scene appearance, so applying or resetting a pose does not change it.
+**Appearance & Theme:** Select a figure to switch **Hairstyle** (`Side parted`,
+`Long waves`, `Twin buns`, `Short crop`, `Parted + beard`, or `None (bald)`)
+using sculpted CC0 Quaternius hair meshes adapted to each skull, and use
+**Hair & brow color** to tint scalp locks, eyebrows, and eyelashes together
+independently of **Surface tint**. Toggle **Light / Dark** studio themes anytime
+from the top bar.
 
 ### Controls
 

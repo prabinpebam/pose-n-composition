@@ -905,3 +905,51 @@ or legal opinion. No third-party model is approved by this document.
 [S46]: https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices "MDN WebGL best practices; accessed 2026-11-18"
 [S47]: https://r3f.docs.pmnd.rs/advanced/scaling-performance "React Three Fiber Scaling performance; accessed 2026-11-18"
 [S48]: https://threejs.org/docs/pages/TransformControls.html "Three TransformControls; accessed 2026-11-18"
+[S49]: https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html "Adobe Mixamo FAQ; accessed 2026-11-18"
+[S50]: https://community.adobe.com/questions-696/mixamo-faq-licensing-royalties-ownership-eula-and-tos-589400 "Adobe Community Official Mixamo FAQ: Licensing, Royalties, Ownership, EULA and TOS (TylerG 3D, Adobe Staff); accessed 2026-11-18"
+[S51]: https://quaternius.com/packs/universalanimationlibrary.html "Quaternius Universal Animation Library [Standard] pack page; accessed 2026-11-18"
+[S52]: https://quaternius.itch.io/universal-animation-library "Quaternius Universal Animation Library on itch.io; accessed 2026-11-18"
+[S53]: https://creativecommons.org/publicdomain/zero/1.0/ "Creative Commons CC0 1.0 Universal Public Domain Dedication; accessed 2026-11-18"
+
+---
+
+## 14. Addendum: Mixamo & CC0 Humanoid Animation Cycle Licensing, Provenance, and Retargeting
+
+### 14.1 Adobe Mixamo licensing & authentication boundaries
+
+1. **Authenticated download required:** Mixamo (`https://www.mixamo.com`) requires signing in with an Adobe ID before browsing or downloading `.fbx` characters and animation clips [S49]. Unauthenticated programmatic fetching from Mixamo is neither supported nor permitted.
+2. **Redistribution of raw Mixamo files in a public open-source repository is prohibited:** Adobe's official Mixamo FAQ and Adobe staff licensing guidance explicitly state that while Mixamo animations may be embedded inside end-user creative works and games, **redistributing or sharing raw/downloadable Mixamo character or animation files on open-source repositories, asset packs, or third-party websites (free or commercial) is prohibited** because recipients would obtain raw redistributable assets outside Adobe's Terms of Use [S49, S50].
+   - Note: Even third-party demo files containing Mixamo clips (such as `Xbot.glb`, `Soldier.glb`, or `Michelle.glb` in the Three.js examples tree, whose metadata credits `mixamo.com`) are excluded from `public/` to maintain zero copyright/redistribution risk.
+3. **Client-side user import is fully compliant:** An artist who downloads `.fbx` (either *With Skin* or *Without Skin*) or `.glb`/`.gltf` animation clips from Mixamo under their own Adobe account may load those files locally in their browser (`File` / `ArrayBuffer` processing in memory via Three.js `FBXLoader` and `GLTFLoader`, with zero server upload or redistribution).
+
+### 14.2 Verified CC0 built-in animation cycles (`Quaternius Universal Animation Library [Standard]`)
+
+To ship built-in, multi-frame humanoid animation cycles in this public GitHub repository with **zero copyright restriction** and **100% native rig compatibility** with our existing `Quaternius Universal Base Characters [Standard]` figures:
+
+- **Source pack:** `Universal Animation Library[Standard].zip` by Quaternius (`Tomás Laulhé`), downloaded from `https://quaternius.com/packs/universalanimationlibrary.html` (mirror: `https://quaternius.itch.io/universal-animation-library`) [S51, S52].
+  - Archive size: `15,904,933` bytes
+  - Archive SHA-256: `CC73FC4E495B82958207316596317A3F40B9FA38065BDE1027937452DA537724`
+- **Archive-specific CC0 1.0 license verification:** Consistent with Quaternius's August 2026 site notice (*"Assets with a different license specified inside their downloaded files follow that included license instead"*), the archive's included `License.txt` and `README.txt` were inspected directly and both explicitly dedicate this pack to the public domain under **CC0 1.0 Universal (`https://creativecommons.org/publicdomain/zero/1.0/`)** [S53]:
+  - `public/models/animations/quaternius-ual1/License.txt` — `332` bytes, SHA-256 `6D01F55C6E4C49A2C9963E147E561945AE2C83958C8CA667D90A6BFFDBFAC061`
+  - `public/models/animations/quaternius-ual1/README.txt` — `702` bytes, SHA-256 `CCD02718886B5A57F10F0A8911A38CFE10C36880E1D6DFA3445923FBA32D2A72`
+  - `public/models/animations/quaternius-ual1/UAL1_Standard.glb` — `7,618,436` bytes, SHA-256 `69591853D817488EDAA8FD9BF8FC1D821EAEAF789F8627B3CD23B41C4ED67997` (copied byte-for-byte unchanged from `Unreal-Godot/UAL1_Standard.glb`)
+- **Native 65-bone skeleton parity:** `UAL1_Standard.glb` targets the exact same 65-bone Quaternius humanoid rig (`pelvis`, `spine_01`, `spine_02`, `spine_03`, `neck_01`, `Head`, `clavicle_l/r`, `upperarm_l/r`, `lowerarm_l/r`, `hand_l/r`, `thigh_l/r`, `calf_l/r`, `foot_l/r`) as `Superhero_Male_FullBody.gltf` and `Superhero_Female_FullBody.gltf`, and provides 43 30-fps motion cycles from which 12 signature figure-drawing cycles (`Walk Cycle`, `Confident Stride`, `Athletic Jog`, `Full Sprint`, `Relaxed Breathing`, `Conversational Gesture`, `Seated Conversation`, `Stealth Crouch Walk`, `Kneeling Action`, `Jump & Takeoff`, `Martial Slash`, `Rhythmic Dance`) are curated in `BUILTIN_ANIMATION_CYCLES`.
+- **Attribution notice snippet for `THIRD_PARTY_NOTICES.md` / `public/THIRD_PARTY_NOTICES.txt` / `docs/ASSETS.md`:**
+  ```text
+  Quaternius — Universal Animation Library [Standard] (UAL1_Standard.glb)
+  Author: Tomás Laulhé (Quaternius) — https://quaternius.com/packs/universalanimationlibrary.html
+  Files: public/models/animations/quaternius-ual1/{UAL1_Standard.glb,License.txt,README.txt}
+  License: CC0 1.0 Universal (Public Domain Dedication) per archive-included License.txt — https://creativecommons.org/publicdomain/zero/1.0/
+  ```
+
+### 14.3 Universal Mixamo & Humanoid Frame-to-Pose Retargeting (`src/animationPoseExtractor.ts`)
+
+1. **Bone-name normalization (`normalizeHumanoidBoneName`):** Strips Three.js track paths (`.bones[...]`, `.quaternion`), exporter namespaces (`Armature|`, `Character1_`, `RIG_`), and Mixamo prefixes (`mixamorig:`, `mixamorig`, `mixamorig1:`, literal colons sanitized for `THREE.PropertyBinding`), mapping Mixamo, Quaternius, Unity/VRM Humanoid, and Biped rigs onto the app's 17 semantic joints (`JOINTS`).
+2. **Three-tier rest-pose recovery:**
+   - *Tier 1 (Skinned FBX/GLB):* Exact bind world transform $M_{\text{bindWorld}} = (\text{boneInverse})^{-1}$ from `SkinnedMesh.skeleton.boneInverses`.
+   - *Tier 2 (Skinless Mixamo "Without Skin" FBX):* Reconstructs zero-`Lcl_Rotation` rest hierarchy ($q_{\text{rest}} = q_{\text{PreRotation}} \cdot q_{\text{PostRotation}}^{-1}$ in FBX `'ZYX'` intrinsic order) from `FBXLoader`'s `userData.transformData`.
+   - *Tier 3 (Hierarchy fallback):* Uses initial scene bone world transforms prior to `AnimationMixer` evaluation.
+3. **Coordinate-system & rest-pose invariant world-space solver:**
+   - Derives an orthonormal alignment rotation $q_{\text{align}}$ from the source rig's rest positions ($\text{up} = \text{head} - \text{hips}$, $\text{left} = \text{orth}(\text{leftShoulder} - \text{rightShoulder}, \text{up})$, $\text{fwd} = \text{left} \times \text{up}$), unifying Y-up glTF/Mixamo and Z-up Blender/Unity FBX exports automatically.
+   - Computes canonical world rotation delta $\Delta W_{\text{can}} = q_{\text{align}} (W_{\text{src,anim}} W_{\text{src,rest}}^{-1}) q_{\text{align}}^{-1}$ plus limb rest-angle alignment $C_{\text{rest}}$ (handling both horizontal T-pose and sloped A-pose rigs) against our calibrated pre-arm-drop target rig (`male` / `female`), solving top-down into the arms-down neutral semantic `Pose` (`setFigurePose` / `getJointRotation` contract) and computing floor-grounded `suggestedRootY`.
+

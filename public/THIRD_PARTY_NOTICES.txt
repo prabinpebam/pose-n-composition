@@ -93,22 +93,33 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-4. Quaternius character assets: separate license
-------------------------------------------------
+4. Quaternius character, hairstyle, and animation assets: separate licenses
+---------------------------------------------------------------------------
 
-The ready-made male and female character models are by Quaternius.
+The ready-made male and female character models, six sculpted hairstyles,
+and built-in humanoid animation cycles are by Tomás Laulhé (Quaternius).
 They are not relicensed by the software notices above.
 
-The selected Universal Base Characters [Standard] archive includes its own
-CC0 1.0 Universal Public Domain Dedication. Its exact original license is
-retained at this relative deployed-site path:
+(a) Universal Base Characters [Standard] (Superhero Male/Female + Hairstyles)
+includes its own CC0 1.0 Universal Public Domain Dedication at:
 
 models/external/quaternius-universal-base/License_Standard.txt
 
-The repository provenance document is docs/ASSETS.md. It records the exact
-distribution, source URLs, hashes, included license, texture filename repairs
-and the distinction between this pack-specific license and the site's global
-license. Do not assume that another asset distribution has identical terms.
-
 Official pack: https://quaternius.com/packs/universalbasecharacters.html
 Official download: https://quaternius.itch.io/universal-base-characters
+
+(b) Universal Animation Library [Standard] (UAL1_Standard.glb)
+includes its own CC0 1.0 Universal Public Domain Dedication at:
+
+models/animations/quaternius-ual1/License.txt
+
+Official pack: https://quaternius.com/packs/universalanimationlibrary.html
+
+Raw Adobe Mixamo animation files are not redistributed in this repository;
+Mixamo .fbx/.glb/.gltf clips imported by the user are parsed locally in the
+browser without upload.
+
+The repository provenance document is docs/ASSETS.md. It records the exact
+distributions, source URLs, hashes, included licenses, texture filename repairs
+and the distinction between these pack-specific CC0 licenses and the site's
+global license. Do not assume that another asset distribution has identical terms.

@@ -1,11 +1,14 @@
 import * as T from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { JOINTS, type Body, type Joint, type Pose } from './model';
+import type { HairStyle } from './hair';
 
 export interface Figure {
+  body?: Body;
   root: T.Group; skin: T.SkinnedMesh; skins: T.SkinnedMesh[]; bones: Record<Joint, T.Bone>;
   restRotations: Record<Joint, T.Quaternion>; rotationBases: Record<Joint, T.Quaternion>;
   tintMaterials: T.MeshStandardMaterial[]; hairMaterials: T.MeshStandardMaterial[];
+  headFromNative?: T.Matrix4; hairStyle?: HairStyle;
 }
 // Legacy regression fixture; the live studio exclusively loads the CC0 source rigs.
 export function makeFigure(body: Body, color: string): Figure {

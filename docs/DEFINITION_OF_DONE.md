@@ -234,6 +234,38 @@ failures are hidden by that warning.
   not used. No data migration, storage clearing, model/license changes or new
   package dependencies were needed.
 - Limits remain explicit: click a figure first to reveal its nodes (or use its
-  Scene row); helpers must be enabled and editor view active. Coincident nodes
+  Outliner row); helpers must be enabled and editor view active. Coincident nodes
   are resolved by nearest screen center/depth; orbit to separate exactly
   overlapping joints. This is FK, not IK or anatomical joint limiting.
+
+## Sculpted hairstyles, 10 grounded presets, Mixamo/CC0 animation pose extractor & UI overhaul (2026-11-19)
+
+- **Sculpted CC0 Hairstyles (`src/hair.ts`, `src/external-rig.ts`)**: Replaced the
+  procedural ray-projected cap with 6 official sculpted CC0 Quaternius hairstyles
+  (`Side parted`, `Long waves`, `Twin buns`, `Short crop`, `Parted + beard`, and
+  `None (bald)`) with cross-body crown-aligned skull adaptation and luminance-normalized
+  albedo textures so any `hairColor` tints sculpted locks, eyebrows, and eyelashes cleanly.
+- **10 Anatomically Grounded Studio Presets (`src/model.ts`, `src/engine.ts`)**:
+  Rebuilt `PRESETS` (`Neutral`, `Relaxed`, `Contrapposto`, `Heroic`, `Walking`,
+  `Running`, `Seated`, `Kneeling`, `Crouch`, `Reach`) calibrated to the 65-bone
+  semantic rig axes and paired with deformed-skin vertex floor grounding (`groundPoseY`)
+  so feet/knees plant naturally on the studio floor without floating or sinking.
+- **Animation-Cycle Pose Extractor (`src/animationPoseExtractor.ts`, `src/App.tsx`)**:
+  Added 12 built-in CC0 humanoid motion cycles (`UAL1_Standard.glb`) plus 100%
+  client-side Mixamo `.fbx` / `.glb` / `.gltf` import (supporting `mixamorig:`
+  bone names, With Skin & Without Skin FBX rest reconstruction, and T/A-pose to
+  arms-down neutral retargeting), frame timeline scrubbing, play/pause preview,
+  floor grounding toggle, and one-click **Use this pose** committing all 17 FK
+  joints with single-step Undo/Redo.
+- **Studio UI Design Audit & Overhaul (`src/components/ui.tsx`, `src/App.tsx`, `src/styles.css`)**:
+  Replaced every native `<select>` and unstructured list with unified accessible
+  components (`SelectDropdown` portal combobox with smart viewport flip and
+  keyboard navigation, structured `ListRow` for Scene Outliner & Saved Studies,
+  `SegmentedControl`, `SwitchRow`, `ColorField`, `SliderField`, `Vector3Field`),
+  enforcing 100% Clawpilot `var(--cp-*)` theme tokens across Dark and Light themes,
+  flush panel-edge scrollbars, and zero one-sided accent borders.
+- **Verification**: **54/54 Vitest tests across 6 test suites**, strict `tsc --noEmit`
+  and production Vite build pass; headless Playwright verified all 16 viewport
+  node-click + ring-drag gestures, keyboard combobox navigation, synthetic Mixamo
+  `.glb` upload + frame pose extraction, and full Dark/Light + `1440×950` /
+  `1024×768` visual QA with zero console or network errors.
