@@ -25,7 +25,7 @@ Unchecked items are not completion claims. Evidence is recorded after execution.
 | Requirement | Acceptance | Evidence |
 |---|---|---|
 | Distinct figures | Legally redistributable ready-made male/female rigged bodies, verified sources/licenses, semantic-joint mapping; multiple coexist | PASS: Quaternius free Standard Superhero pair, exact included CC0; 65 bones / three skins each, 17 mapped controls; actual browser screenshots and source-rig tests |
-| Static posing | Click visible joint nodes, rotate FK by real pointer drag, root W/E/R, presets, neutral reset, undo/redo | LOCAL PASS after Nov 19 repair: 16 actual node-click/ring-drag cases across both figures, sampled skin movement and one-step undo/redo; prior inspector/preset checks did not establish this workflow. Public gesture verification recorded separately below. |
+| Static posing | Click visible joint nodes, rotate FK by real pointer drag, root W/E/R, presets, neutral reset, undo/redo | PASS after Nov 19 repair: two fresh-stage LIVE 16-case node-click/ring-drag runs across both figures at 1024 x 768 and 1440 x 1000, sampled skin movement, before/after screenshots and one-step undo/redo. Prior inspector/preset checks did not establish this workflow. |
 | Hair appearance | Visible scalp hair, brows and lashes on both source figures; independent per-figure hair color follows head; scene persistence, old-save compatibility and history | PASS: 40-test suite; local and LIVE close-ups, both-sex duplicate/delete isolation, head turns, color undo/redo and scene save-refresh-load; live DOF PNG includes both hair colors |
 | Props | Lamp, table, chair, desk, couch, bed, windowed room; transforms and colors | PASS: four persisted prop tests (including nine window-opening rays and material isolation); all seven coexist in actual 10-object UI scene |
 | Lighting | Position, target, color and intensity change actual scene illumination | PASS: actual image mean RGB differences 12.40 / 73.94 / 42.43 / 73.94 respectively |
@@ -208,8 +208,32 @@ failures are hidden by that warning.
 
 ### Public verification
 
-Deployment and fresh live gesture results are pending until the repair is
-published; the local results above are not a live acceptance claim.
+- Functional release: **`854445696933819a1c033b2bd0eec80562905d0c`**.
+  [Pages workflow 44463656732](https://github.com/prabinpebam/pose-n-composition/actions/runs/44463656732)
+  completed **successfully**, including all 43 tests, strict build and deployment.
+  The fresh live page loaded the matching `index-Bjg9vI_Q.js` production bundle.
+- On the actual HTTPS app, an isolated fresh page passed all **16 node clicks
+  and real ring drags** at 1024 x 768. Twelve before/after screenshots capture
+  male/female shoulder, head and ankle gestures. They visibly show the skin/head
+  changing, not merely numbers or a root/camera movement.
+- Reloaded the fresh stage and repeated **all 16 cases at 1440 x 1000**. Both
+  bodies passed shoulder, elbow, wrist, head, neck, hip, knee and ankle. Actual
+  skin motion ranged **0.01313-0.12238 m**. Correct attachment/highlight,
+  unchanged root/camera/opposite limb/other figure, scalp following head/neck,
+  orbit gating and one-step undo/redo passed in every case. No joint dropdown,
+  numeric joint input, pose injection or engine setter was used to perform them.
+- LIVE also passed the **10 post-Reach/repeated-drag cases**, **eight same-gender
+  copy isolation cases**, and named save -> refresh -> load of five objects with
+  all joint transforms, camera/background and independent hair colors intact.
+  **Six more pointer gestures** passed after the load. Preferences were unchanged.
+- Every live gesture run reported **zero application/console errors**.
+  All mutations were in the task's isolated page; the owner's tab/storage was
+  not used. No data migration, storage clearing, model/license changes or new
+  package dependencies were needed.
+- Limits remain explicit: click a figure first to reveal its nodes (or use its
+  Scene row); helpers must be enabled and editor view active. Coincident nodes
+  are resolved by nearest screen center/depth; orbit to separate exactly
+  overlapping joints. This is FK, not IK or anatomical joint limiting.
 - Live DOF camera export encoded **1600 x 1067, 1,158,642-byte PNG**, matching the
   local verified rendering. Only uniquely named test saves created for these checks
   were removed; existing user records and preferences were not cleared.
