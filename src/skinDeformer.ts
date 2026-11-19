@@ -735,7 +735,7 @@ function computeWeldedNormalsAndTangents(
   for (let w = 0; w < weldCount; w++) {
     const b = w * 3;
     const nx = outWeldedNorm[b]!, ny = outWeldedNorm[b + 1]!, nz = outWeldedNorm[b + 2]!;
-    const len = Math.hypot(nx, ny, nz);
+    const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
     if (len > 1e-12) {
       const inv = 1 / len;
       outWeldedNorm[b] = nx * inv;
@@ -812,13 +812,13 @@ function buildVertexTangentBasis(
   let ex = smoothedPos[nb3]! - px;
   let ey = smoothedPos[nb3 + 1]! - py;
   let ez = smoothedPos[nb3 + 2]! - pz;
-  const edgeLen = Math.hypot(ex, ey, ez);
+  const edgeLen = Math.sqrt(ex * ex + ey * ey + ez * ez);
 
   const proj = ex * nx + ey * ny + ez * nz;
   let tx = ex - proj * nx;
   let ty = ey - proj * ny;
   let tz = ez - proj * nz;
-  let tLen = Math.hypot(tx, ty, tz);
+  let tLen = Math.sqrt(tx * tx + ty * ty + tz * tz);
 
   if (tLen < 1e-6) {
     nb = refNeighbor2[w]!;
@@ -830,7 +830,7 @@ function buildVertexTangentBasis(
     tx = ex - proj2 * nx;
     ty = ey - proj2 * ny;
     tz = ez - proj2 * nz;
-    tLen = Math.hypot(tx, ty, tz);
+    tLen = Math.sqrt(tx * tx + ty * ty + tz * tz);
   }
 
   if (tLen < 1e-6) {
@@ -842,7 +842,7 @@ function buildVertexTangentBasis(
       const p3 = tx * nx;
       tx -= p3 * nx; ty -= p3 * ny; tz -= p3 * nz;
     }
-    tLen = Math.hypot(tx, ty, tz) || 1;
+    tLen = Math.sqrt(tx * tx + ty * ty + tz * tz) || 1;
   }
 
   const invT = 1 / tLen;
@@ -1670,8 +1670,9 @@ function pushOutOfTaperedCapsule(
   if (r <= 1e-5) return 0;
 
   let dx = vx - cx, dy = vy - cy, dz = vz - cz;
-  let dist = Math.hypot(dx, dy, dz);
-  if (dist >= r) return 0;
+  const distSq = dx * dx + dy * dy + dz * dz;
+  if (distSq >= r * r) return 0;
+  let dist = Math.sqrt(distSq);
 
   if (dist < 1e-6) {
     dx = 0; dy = 0; dz = 1; dist = 1;
@@ -1982,7 +1983,7 @@ export function evaluateSkinDeformation(
       continue;
     }
 
-    const qNorm = Math.hypot(dqsQx, dqsQy, dqsQz, dqsQw);
+    const qNorm = Math.sqrt(dqsQx * dqsQx + dqsQy * dqsQy + dqsQz * dqsQz + dqsQw * dqsQw);
     if (qNorm < 1e-8) {
       skinnedPos[w3] = lbsX;
       skinnedPos[w3 + 1] = lbsY;
@@ -2547,7 +2548,7 @@ export function evaluateSkinDeformation(
   for (let g = 0; g < normWeldGroupCount; g++) {
     const g3 = g * 3;
     const nx = normGroupAccum[g3]!, ny = normGroupAccum[g3 + 1]!, nz = normGroupAccum[g3 + 2]!;
-    const len = Math.hypot(nx, ny, nz);
+    const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
     if (len > 1e-12) {
       const inv = 1 / len;
       normGroupAccum[g3] = nx * inv;
