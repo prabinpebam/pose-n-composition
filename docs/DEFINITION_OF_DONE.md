@@ -269,3 +269,32 @@ failures are hidden by that warning.
   node-click + ring-drag gestures, keyboard combobox navigation, synthetic Mixamo
   `.glb` upload + frame pose extraction, and full Dark/Light + `1440×950` /
   `1024×768` visual QA with zero console or network errors.
+
+## True-color skin & outfit tinting, Camera View navigation & Pose JSON interchange (2026-11-19)
+
+- **True-Color Skin & Independent Outfit / Dress Tinting (`src/external-rig.ts`, `src/rig.ts`, `src/model.ts`, `src/App.tsx`)**:
+  Added runtime albedo luminance normalization + sub-pixel chroma/luminance/roughness
+  outfit masking (`buildNormalizedBodyOutfitRgba`) uploaded via unpremultiplied RGBA
+  `THREE.DataTexture` (`SRGBColorSpace`, `premultiplyAlpha = false`) and a per-clone
+  `uOutfitColor` `MeshStandardMaterial` shader hook (`configureSkinAndOutfitMaterial`),
+  leaving raw CC0 glTF/PNG assets untouched on disk. Added `outfitColor` to figure
+  scene items with additive v1 backward compatibility and independent clone uniforms.
+- **Interactive Orbit / Pan / Zoom in Camera View (`src/engine.ts`, `src/App.tsx`)**:
+  Attached a dedicated `OrbitControls` instance (`cameraOrbit`) to the composition
+  camera when `Camera` view is active so left-drag orbit, right-drag pan, wheel zoom,
+  and `Frame F` adjust `compositionCamera.position` and `target` live, recording one
+  Undo/Redo step per gesture and autosaving to IndexedDB while leaving `editorCamera`
+  untouched.
+- **First-Class Export & Import Pose JSON (`src/model.ts`, `src/App.tsx`)**:
+  Added **Export pose JSON** and **Import pose JSON** buttons directly in
+  **Joint & preset posing**, validating `.pose.json` (`validatePoseFile` /
+  `parsePoseFile`) strictly as 17 semantic joints without appearance fields,
+  supporting cross-body (`Male <-> Female`) application, single-step Undo/Redo, and
+  immediate IndexedDB autosave.
+- **Verification**: Vitest unit suites (`model`, `external-rig`, `storage`, `hair`,
+  `picking`, `presets`, `poses`), `tsc -b && vite build`, WebGL `gl.readPixels`
+  verification across `#FFDECC`, `#D99B78`, `#6B3E26`, `#40E0D0` skin swatches and
+  `#E63946`, `#F1FAEE`, `#2A9D8F` outfit swatches on both Male & Female, Camera View
+  orbit/pan/zoom + Undo/Redo + reload, Export/Import `.pose.json` round-trip, and
+  `16/16` `runPosingSmoke` FK gestures passed with zero errors, followed by live
+  GitHub Pages verification.

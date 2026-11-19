@@ -6,16 +6,17 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { getJointRotation, setFigurePose, type Figure } from './rig';
-import { makeExternalFigure, setFigureHairStyle } from './external-rig';
+import { makeExternalFigure, setFigureColors, setFigureHairStyle } from './external-rig';
 import { makeProp } from './props';
 import { pickJointMarker, sizeJointMarker } from './joint-markers';
-import { clone, DEFAULT_HAIR_COLOR, isBody, JOINTS, validatePortable, type Item, type Joint, type Pose, type SceneState, type Vec3 } from './model';
+import { clone, DEFAULT_HAIR_COLOR, defaultOutfitColor, isBody, JOINTS, validatePortable, type Item, type Joint, type Pose, type SceneState, type Vec3 } from './model';
 
 interface Entry { kind: Item['kind']; root: T.Group; figure?: Figure; light?: T.SpotLight; target?: T.Object3D; markers?: T.Mesh<T.SphereGeometry, T.MeshBasicMaterial>[] }
 export interface EngineOptions {
   change: (state: SceneState) => void;
   liveChange?: (state: SceneState) => void;
   orbitChange?: (orbit: { position: Vec3; target: Vec3 }, settled: boolean) => void;
+  cameraChange?: (cameraPose: { position: Vec3; target: Vec3 }, settled: boolean) => void;
   select: (id: string | null, joint: Joint | null) => void;
   error: (error: unknown) => void;
 }
@@ -25,6 +26,7 @@ export class Studio {
   readonly editorCamera = new T.PerspectiveCamera(42, 1, 0.02, 500);
   readonly camera = new T.PerspectiveCamera();
   readonly orbit: OrbitControls;
+  readonly cameraOrbit: OrbitControls;
   readonly transform: TransformControls;
   readonly entries = new Map<string, Entry>();
   private readonly grid: T.GridHelper;
@@ -44,6 +46,11 @@ export class Studio {
   private transformChanged = false;
   private suppressOrbitEmit = false;
   private lastOrbit: [number, number, number, number, number, number] = [3.2, 2.4, 5.2, 0, 0.95, 0];
+  private suppressCameraEmit = false;
+  private cameraPointerDown = false;
+  private cameraGestureDirty = false;
+  private cameraWheelTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastCameraPose: [number, number, number, number, number, number] = [0, 1.35, 3.8, 0, 1.05, 0];
   private alive = true;
   private width = 1;
   private height = 1;
@@ -67,11 +74,23 @@ export class Studio {
     this.recordOrbit();
     this.orbit.addEventListener('change', this.handleOrbitChange);
     this.orbit.addEventListener('end', this.handleOrbitEnd);
+    this.camera.position.set(0, 1.35, 3.8);
+    this.cameraOrbit = new OrbitControls(this.camera, this.renderer.domElement);
+    this.cameraOrbit.target.set(0, 1.05, 0);
+    this.cameraOrbit.enableDamping = false;
+    this.cameraOrbit.minDistance = 0.25;
+    this.cameraOrbit.maxDistance = 65;
+    this.cameraOrbit.enabled = false;
+    this.cameraOrbit.update();
+    this.recordCameraPose();
+    this.cameraOrbit.addEventListener('change', this.handleCameraOrbitChange);
+    this.cameraOrbit.addEventListener('end', this.handleCameraOrbitEnd);
     this.transform = new TransformControls(this.editorCamera, this.renderer.domElement);
     this.transform.setSize(0.85);
     this.scene.add(this.transform.getHelper());
     this.transform.addEventListener('dragging-changed', e => {
       this.orbit.enabled = !e.value && !this.cameraView;
+      this.cameraOrbit.enabled = !e.value && this.cameraView;
       if (e.value) { this.recentlyDragged = true; this.transformChanged = false; }
     });
     this.transform.addEventListener('objectChange', () => {
@@ -92,6 +111,7 @@ export class Studio {
     floor.rotation.x = -Math.PI / 2; floor.position.y = -0.005; floor.receiveShadow = true; this.scene.add(floor);
     this.grid = new T.GridHelper(20, 40, '#7b7771', '#62605b'); this.grid.position.y = -0.003; this.scene.add(this.grid);
     this.renderer.domElement.addEventListener('pointerdown', this.pointerDown, true);
+    this.renderer.domElement.addEventListener('touchstart', this.cameraTouchStart, { capture: true, passive: true });
     this.renderer.domElement.addEventListener('pointerup', this.nodePointerUp, true);
     this.renderer.domElement.addEventListener('pointermove', this.pointerMove, true);
     this.renderer.domElement.addEventListener('pointerleave', this.pointerLeave);
@@ -101,7 +121,8 @@ export class Studio {
     this.resizeObserver = new ResizeObserver(() => this.resize()); this.resizeObserver.observe(host);
     this.renderer.setAnimationLoop(() => {
       if (!this.alive) return;
-      this.orbit.update();
+      if (this.cameraView) this.cameraOrbit.update();
+      else this.orbit.update();
       try { this.render(); } catch (e) { this.renderer.setAnimationLoop(null); options.error(e); }
     });
   }
@@ -110,8 +131,15 @@ export class Studio {
     const entry = this.selected ? this.entries.get(this.selected) : null;
     return this.cameraView ? null : pickJointMarker(entry?.markers ?? [], this.editorCamera, this.renderer.domElement.getBoundingClientRect(), event.clientX, event.clientY);
   }
+  private cameraTouchStart = () => {
+    if (this.cameraView && !this.transform.dragging) this.cameraPointerDown = true;
+  };
   private pointerDown = (event: PointerEvent) => {
     this.pointerStart.set(event.clientX, event.clientY);
+    if (this.cameraView && !this.transform.dragging) {
+      this.cameraPointerDown = true;
+      return;
+    }
     if (event.button !== 0 || this.transform.dragging) return;
     const marker = this.markerAt(event);
     if (!marker) return;
@@ -141,6 +169,7 @@ export class Studio {
   };
   private pointerCancel = () => {
     this.nodePointer = null;
+    this.flushCameraGesture();
     if (this.transform.dragging) this.transform.pointerUp(null);
     if (this.transformChanged) {
       this.transformChanged = false;
@@ -166,6 +195,84 @@ export class Studio {
   };
   private handleOrbitEnd = () => {
     this.emitOrbit(true);
+  };
+  private clampCameraOrbit(): void {
+    this.cameraOrbit.target.set(
+      T.MathUtils.clamp(this.cameraOrbit.target.x, -85, 85),
+      T.MathUtils.clamp(this.cameraOrbit.target.y, -85, 85),
+      T.MathUtils.clamp(this.cameraOrbit.target.z, -85, 85),
+    );
+    this.camera.position.set(
+      T.MathUtils.clamp(this.camera.position.x, -99, 99),
+      T.MathUtils.clamp(this.camera.position.y, -99, 99),
+      T.MathUtils.clamp(this.camera.position.z, -99, 99),
+    );
+    this.camera.lookAt(this.cameraOrbit.target);
+  }
+  private recordCameraPose(): void {
+    const p = this.camera.position, t = this.cameraOrbit.target;
+    this.lastCameraPose = [p.x, p.y, p.z, t.x, t.y, t.z];
+  }
+  getCameraOrbitView(): { position: Vec3; target: Vec3 } {
+    const round4 = (n: number) => Number(n.toFixed(4));
+    const p = this.camera.position, t = this.cameraOrbit.target;
+    return {
+      position: [round4(p.x), round4(p.y), round4(p.z)],
+      target: [round4(t.x), round4(t.y), round4(t.z)],
+    };
+  }
+  flushCameraGesture(): void {
+    if (this.cameraWheelTimer !== null) {
+      clearTimeout(this.cameraWheelTimer);
+      this.cameraWheelTimer = null;
+    }
+    this.cameraPointerDown = false;
+    if (!this.cameraGestureDirty) return;
+    this.cameraGestureDirty = false;
+    const pose = this.getCameraOrbitView();
+    if (this.state) {
+      this.state.camera.position = clone(pose.position);
+      this.state.camera.target = clone(pose.target);
+    }
+    this.options.cameraChange?.(pose, true);
+  }
+  cancelCameraGesture(): void {
+    if (this.cameraWheelTimer !== null) {
+      clearTimeout(this.cameraWheelTimer);
+      this.cameraWheelTimer = null;
+    }
+    this.cameraPointerDown = false;
+    this.cameraGestureDirty = false;
+  }
+  private handleCameraOrbitChange = () => {
+    if (this.suppressCameraEmit || !this.cameraView) return;
+    this.clampCameraOrbit();
+    const p = this.camera.position, t = this.cameraOrbit.target;
+    const next: [number, number, number, number, number, number] = [p.x, p.y, p.z, t.x, t.y, t.z];
+    const moved = next.some((v, idx) => Math.abs(v - this.lastCameraPose[idx]!) > 1e-4);
+    if (!moved) return;
+    this.lastCameraPose = next;
+    this.cameraGestureDirty = true;
+    const pose = this.getCameraOrbitView();
+    if (this.state) {
+      this.state.camera.position = clone(pose.position);
+      this.state.camera.target = clone(pose.target);
+    }
+    this.options.cameraChange?.(pose, false);
+    if (!this.cameraPointerDown) {
+      if (this.cameraWheelTimer !== null) clearTimeout(this.cameraWheelTimer);
+      this.cameraWheelTimer = setTimeout(() => {
+        this.cameraWheelTimer = null;
+        this.flushCameraGesture();
+      }, 160);
+    }
+  };
+  private handleCameraOrbitEnd = () => {
+    if (this.suppressCameraEmit || !this.cameraView) return;
+    if (this.cameraPointerDown) {
+      this.cameraPointerDown = false;
+      this.flushCameraGesture();
+    }
   };
   private updateMarkerColors(): void {
     for (const entry of this.entries.values()) entry.markers?.forEach(m => {
@@ -196,7 +303,7 @@ export class Studio {
       let entry = this.entries.get(item.id);
       if (!entry) {
         if (isBody(item.kind)) {
-          const figure = makeExternalFigure(item.kind, item.color);
+          const figure = makeExternalFigure(item.kind, item.color, item.outfitColor ?? defaultOutfitColor(item.kind));
           const markers = JOINTS.map(j => {
             const m = new T.Mesh(new T.SphereGeometry(0.022, 16, 12), new T.MeshBasicMaterial({ color: '#ffd07d', depthTest: false, depthWrite: false }));
             m.renderOrder = 20; m.userData.joint = j; figure.bones[j].add(m); return m;
@@ -218,8 +325,12 @@ export class Studio {
       if (entry.figure && item.pose && isBody(item.kind)) {
         setFigureHairStyle(entry.figure, item.kind, item.hairStyle, item.hairColor ?? DEFAULT_HAIR_COLOR);
         setFigurePose(entry.figure, item.pose);
-        entry.figure.tintMaterials.forEach(material => material.color.set(item.color));
-        entry.figure.hairMaterials.forEach(material => material.color.set(item.hairColor ?? DEFAULT_HAIR_COLOR));
+        setFigureColors(
+          entry.figure,
+          item.color,
+          item.outfitColor ?? defaultOutfitColor(item.kind),
+          item.hairColor ?? DEFAULT_HAIR_COLOR,
+        );
       }
       else if (!entry.light) entry.root.traverse(node => {
         if (node instanceof T.Mesh && node.material instanceof T.MeshStandardMaterial && !node.userData.fixedColor) node.material.color.set(item.color);
@@ -230,7 +341,27 @@ export class Studio {
       }
     }
     this.scene.background = new T.Color(state.background);
-    const c = state.camera; this.camera.position.fromArray(c.position); this.camera.lookAt(new T.Vector3(...c.target));
+    const c = state.camera;
+    const cameraMoved =
+      Math.abs(this.camera.position.x - c.position[0]) > 2e-4 ||
+      Math.abs(this.camera.position.y - c.position[1]) > 2e-4 ||
+      Math.abs(this.camera.position.z - c.position[2]) > 2e-4 ||
+      Math.abs(this.cameraOrbit.target.x - c.target[0]) > 2e-4 ||
+      Math.abs(this.cameraOrbit.target.y - c.target[1]) > 2e-4 ||
+      Math.abs(this.cameraOrbit.target.z - c.target[2]) > 2e-4;
+    if (cameraMoved) {
+      this.suppressCameraEmit = true;
+      try {
+        this.cameraOrbit.target.fromArray(c.target);
+        this.camera.position.fromArray(c.position);
+        this.cameraOrbit.update();
+        this.recordCameraPose();
+      } finally {
+        this.suppressCameraEmit = false;
+      }
+    } else {
+      this.camera.lookAt(this.cameraOrbit.target);
+    }
     this.camera.near = c.near; this.camera.far = c.far; this.camera.filmGauge = 36; this.camera.zoom = 1;
     this.camera.aspect = aspect(c.aspect); this.camera.setFocalLength(c.focalLength); this.camera.updateProjectionMatrix();
     if (this.bokeh) {
@@ -256,7 +387,12 @@ export class Studio {
   }
   setMode(mode: 'translate' | 'rotate' | 'scale'): void { this.mode = mode; this.select(this.selected, this.joint); }
   setView(cameraView: boolean): void {
-    this.cameraView = cameraView; this.orbit.enabled = !cameraView; this.select(this.selected, this.joint); this.resize();
+    if (this.cameraView && !cameraView) this.flushCameraGesture();
+    this.cameraView = cameraView;
+    this.orbit.enabled = !cameraView && !this.transform.dragging;
+    this.cameraOrbit.enabled = cameraView && !this.transform.dragging;
+    this.select(this.selected, this.joint);
+    this.resize();
   }
   setHelpers(joints: boolean, helpers: boolean): void { this.jointsVisible = joints; this.helpers = helpers; this.select(this.selected, this.joint); }
   setOrbitView(position: Vec3, target: Vec3): void {
@@ -276,6 +412,28 @@ export class Studio {
   focusSelected(): void {
     const e = this.selected ? this.entries.get(this.selected) : null;
     const center = e ? new T.Box3().setFromObject(e.root).getCenter(new T.Vector3()) : new T.Vector3(0, 1, 0);
+    if (this.cameraView) {
+      this.flushCameraGesture();
+      this.suppressCameraEmit = true;
+      try {
+        const dir = this.camera.position.clone().sub(this.cameraOrbit.target);
+        const delta = (dir.lengthSq() > 1e-6 ? dir.normalize() : new T.Vector3(0, 0.08, 1).normalize()).multiplyScalar(3.6);
+        this.cameraOrbit.target.copy(center);
+        this.camera.position.copy(center).add(delta);
+        this.cameraOrbit.update();
+        this.clampCameraOrbit();
+        this.recordCameraPose();
+      } finally {
+        this.suppressCameraEmit = false;
+      }
+      const pose = this.getCameraOrbitView();
+      if (this.state) {
+        this.state.camera.position = clone(pose.position);
+        this.state.camera.target = clone(pose.target);
+      }
+      this.options.cameraChange?.(pose, true);
+      return;
+    }
     const delta = this.editorCamera.position.clone().sub(this.orbit.target).normalize().multiplyScalar(3.6);
     this.orbit.target.copy(center); this.editorCamera.position.copy(center).add(delta);
     this.orbit.update();
@@ -405,8 +563,10 @@ export class Studio {
     }
   }
   dispose(): void {
+    this.flushCameraGesture();
     this.alive = false; this.renderer.setAnimationLoop(null); this.resizeObserver.disconnect();
     this.renderer.domElement.removeEventListener('pointerdown', this.pointerDown, true);
+    this.renderer.domElement.removeEventListener('touchstart', this.cameraTouchStart, true);
     this.renderer.domElement.removeEventListener('pointerup', this.nodePointerUp, true);
     this.renderer.domElement.removeEventListener('pointermove', this.pointerMove, true);
     this.renderer.domElement.removeEventListener('pointerleave', this.pointerLeave);
@@ -415,7 +575,9 @@ export class Studio {
     this.renderer.domElement.removeEventListener('webglcontextlost', this.contextLost);
     this.orbit.removeEventListener('change', this.handleOrbitChange);
     this.orbit.removeEventListener('end', this.handleOrbitEnd);
-    this.transform.dispose(); this.orbit.dispose(); this.composer?.dispose(); this.bokeh?.dispose();
+    this.cameraOrbit.removeEventListener('change', this.handleCameraOrbitChange);
+    this.cameraOrbit.removeEventListener('end', this.handleCameraOrbitEnd);
+    this.transform.dispose(); this.orbit.dispose(); this.cameraOrbit.dispose(); this.composer?.dispose(); this.bokeh?.dispose();
     disposeObject(this.scene, true); this.renderer.dispose(); this.renderer.domElement.remove();
   }
 }

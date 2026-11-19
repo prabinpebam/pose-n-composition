@@ -7,7 +7,7 @@ export interface Figure {
   body?: Body;
   root: T.Group; skin: T.SkinnedMesh; skins: T.SkinnedMesh[]; bones: Record<Joint, T.Bone>;
   restRotations: Record<Joint, T.Quaternion>; rotationBases: Record<Joint, T.Quaternion>;
-  tintMaterials: T.MeshStandardMaterial[]; hairMaterials: T.MeshStandardMaterial[];
+  tintMaterials: T.MeshStandardMaterial[]; outfitColorUniforms: Array<{ value: T.Color }>; hairMaterials: T.MeshStandardMaterial[];
   headFromNative?: T.Matrix4; hairStyle?: HairStyle;
 }
 // Legacy regression fixture; the live studio exclusively loads the CC0 source rigs.
@@ -121,7 +121,7 @@ export function makeFigure(body: Body, color: string): Figure {
     eye.position.set(side * 0.042, 0.055, 0.094); eye.scale.set(1, 0.55, 0.35); bones.head.add(eye);
   }
   const identityMap = () => Object.fromEntries(JOINTS.map(j => [j, new T.Quaternion()])) as Record<Joint, T.Quaternion>;
-  return { root, skin, skins: [skin], bones, restRotations: identityMap(), rotationBases: identityMap(), tintMaterials: [material], hairMaterials: [] };
+  return { root, skin, skins: [skin], bones, restRotations: identityMap(), rotationBases: identityMap(), tintMaterials: [material], outfitColorUniforms: [], hairMaterials: [] };
 }
 export function setFigurePose(figure: Figure, pose: Pose): void {
   JOINTS.forEach(j => {

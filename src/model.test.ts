@@ -1,6 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import * as T from 'three';
-import { applyPose, clone, createItem, DEFAULT_HAIR_COLOR, HAIR_STYLE_IDS, initialScene, JOINTS, neutralPose, parseFile, poseFile, PRESETS, preset, PROP_KINDS, validatePortable } from './model';
+import {
+  applyPose,
+  clone,
+  createItem,
+  DEFAULT_FEMALE_OUTFIT_COLOR,
+  DEFAULT_FEMALE_SKIN_COLOR,
+  DEFAULT_HAIR_COLOR,
+  DEFAULT_MALE_OUTFIT_COLOR,
+  DEFAULT_MALE_SKIN_COLOR,
+  HAIR_STYLE_IDS,
+  initialScene,
+  JOINTS,
+  neutralPose,
+  parseFile,
+  parsePoseFile,
+  poseFile,
+  PRESETS,
+  preset,
+  PROP_KINDS,
+  validatePoseFile,
+  validatePortable,
+} from './model';
 import { makeFigure, setFigurePose } from './rig';
 
 describe('portable scene and pose contracts', () => {
@@ -112,6 +133,59 @@ describe('portable scene and pose contracts', () => {
       }
     }
     expect(signatures.size).toBe(PRESETS.length);
+  });
+  it('round-trips true-color skin and outfitColor, defaults legacy v1 scenes, and keeps pose JSON appearance-free', () => {
+    const scene = initialScene();
+    expect(scene.items[0].color).toBe(DEFAULT_MALE_SKIN_COLOR);
+    expect(scene.items[1].color).toBe(DEFAULT_FEMALE_SKIN_COLOR);
+    expect(scene.items[0].outfitColor).toBe(DEFAULT_MALE_OUTFIT_COLOR);
+    expect(scene.items[1].outfitColor).toBe(DEFAULT_FEMALE_OUTFIT_COLOR);
+
+    scene.items[0].color = '#8d5524';
+    scene.items[0].outfitColor = '#1d6f5e';
+    scene.items[1].color = '#f5d0ba';
+    scene.items[1].outfitColor = '#6a359c';
+    const reloaded = parseFile(JSON.stringify(scene));
+    expect(reloaded).toEqual(scene);
+
+    const exportedPose = poseFile(scene.items[0], 'Heroic export');
+    expect(exportedPose).not.toHaveProperty('color');
+    expect(exportedPose).not.toHaveProperty('outfitColor');
+    expect(exportedPose).not.toHaveProperty('hairColor');
+    expect(exportedPose).not.toHaveProperty('hairStyle');
+
+    const crossApplied = applyPose(scene.items[1], parsePoseFile(JSON.stringify(exportedPose)));
+    expect(crossApplied.pose).toEqual(scene.items[0].pose);
+    expect(crossApplied.color).toBe('#f5d0ba');
+    expect(crossApplied.outfitColor).toBe('#6a359c');
+
+    const legacy = clone(scene);
+    delete legacy.items[0].outfitColor;
+    delete legacy.items[1].outfitColor;
+    const upgraded = validatePortable(legacy);
+    if (upgraded.type !== 'scene') throw new Error('Expected scene');
+    expect(upgraded.items[0].outfitColor).toBe(DEFAULT_MALE_OUTFIT_COLOR);
+    expect(upgraded.items[1].outfitColor).toBe(DEFAULT_FEMALE_OUTFIT_COLOR);
+  });
+  it.each([null, '#123', 'crimson', 42, { hex: '#112233' }])('rejects malformed present outfitColor %j', outfitColor => {
+    const scene = initialScene();
+    const candidate = { ...scene, items: [{ ...scene.items[0], outfitColor }] };
+    expect(() => validatePortable(candidate)).toThrow('expected #rrggbb color');
+  });
+  it('validates dedicated pose JSON files and rejects scene JSON or malformed pose files cleanly', () => {
+    const male = createItem('male');
+    male.pose = preset('Heroic');
+    const serialized = JSON.stringify(poseFile(male, 'Heroic study'), null, 2);
+    const parsed = parsePoseFile(serialized);
+    expect(parsed.type).toBe('pose');
+    expect(parsed.name).toBe('Heroic study');
+    expect(parsed.pose).toEqual(male.pose);
+
+    const female = createItem('female');
+    const beforeFemale = clone(female);
+    expect(() => parsePoseFile(JSON.stringify(initialScene()))).toThrow('expected a pose JSON file');
+    expect(() => validatePoseFile({ schemaVersion: 1, rigVersion: 1, type: 'pose', name: 'Bad', body: 'male', pose: {} })).toThrow('Invalid file');
+    expect(female).toEqual(beforeFemale);
   });
 });
 describe('actual procedural rig and camera', () => {

@@ -43,20 +43,26 @@ studio presets** (`Neutral`, `Relaxed`, `Contrapposto`, `Heroic`, `Walking`,
 choose any of the **12 built-in CC0 motion cycles** (or import a Mixamo `.fbx` /
 `.glb` / `.gltf` animation locally in your browser), scrub the **Frame timeline**
 slider with live character preview, and click **Use this pose** to commit that
-exact frame into all 17 editable FK joints with single-step Undo/Redo.
+exact frame into all 17 editable FK joints with single-step Undo/Redo. Use
+**Export pose JSON** and **Import pose JSON** directly in **Joint & preset posing**
+to download or apply portable `.pose.json` files across male and female figures.
 
 **Compose:** Arrange multiple figures and props → edit studio-light position,
-target, surface color and intensity → open **Camera** → set position, aim, lens,
-aspect and focus → **Camera** view → **Export PNG** / save scene in **Library**.
+target, surface color and intensity → open **Camera** (or switch to **Camera**
+view and orbit/pan/zoom directly in the viewport to frame the shot) → tune lens,
+aspect and focus → **Export PNG** / save scene in **Library**.
 The floor is a fixed neutral stage; background color changes the space above it.
 Lamp is a furnishing; add a separate Studio light for illumination.
 
-**Appearance & Theme:** Select a figure to switch **Hairstyle** (`Side parted`,
+**Appearance & Theme:** Select a figure to customize **Skin color** and
+**Outfit / dress color** independently (both luminance-normalized at runtime from
+the raw CC0 albedo/roughness maps into unpremultiplied RGBA `DataTexture`s so
+fair, olive, deep, or stylized tones render true to swatch without baked hue
+contamination), switch **Hairstyle** (`Side parted`,
 `Long waves`, `Twin buns`, `Short crop`, `Parted + beard`, or `None (bald)`)
 using sculpted CC0 Quaternius hair meshes adapted to each skull, and use
-**Hair & brow color** to tint scalp locks, eyebrows, and eyelashes together
-independently of **Surface tint**. Toggle **Light / Dark** studio themes anytime
-from the top bar.
+**Hair & brow color** to tint scalp locks, eyebrows, and eyelashes together.
+Toggle **Light / Dark** studio themes anytime from the top bar.
 
 ### Controls
 
@@ -118,10 +124,12 @@ Do not run it in an owner's working tab.
 - Files use `schemaVersion: 1`, `rigVersion: 1`, `type: "scene" | "pose"`.
   Imports require bounded finite values, every known joint, unique object IDs,
   valid colors and clipping planes. Limits: **1 MB, 64 objects, 8 studio lights**.
-- Figure scene items include `hairColor: "#rrggbb"`. This additive v1 field is
-  optional in older files/saves: absent values load as dark brown (`#3b2720`);
-  malformed present values reject the whole import. Existing records are not
-  rewritten or cleared. Pose files deliberately exclude all appearance.
+- Figure scene items include `hairColor: "#rrggbb"` and `outfitColor: "#rrggbb"`.
+  These additive v1 fields are optional in older files/saves: absent `hairColor`
+  loads as dark brown (`#3b2720`) and absent `outfitColor` loads per-body defaults
+  (`#2f435e` male, `#8f304d` female); malformed present values reject the whole
+  import. Existing records are not rewritten or cleared. Pose files (`.pose.json`)
+  deliberately exclude all appearance (`color`, `outfitColor`, `hairColor`, `hairStyle`).
 - IndexedDB transaction completion is required before reporting success.
   Quota, blocked database, import and preference errors are visible.
 - Storage keys are app-prefixed because GitHub Pages repositories on the same
@@ -144,8 +152,11 @@ model change. Unit/height normalization lives inside the figure wrapper (male
 
 ## Camera and rendering
 
-Editor orbit never modifies the saved composition camera. **Use editor angle**
-explicitly copies its position/aim. Lens is canonical millimeters; the perspective
+Editor orbit never modifies the saved composition camera. Switching to **Camera**
+view lets you orbit, pan, and wheel-zoom the composition camera directly in the
+viewport (recording one Undo/Redo step per gesture and autosaving immediately to
+IndexedDB) while leaving the Editor camera untouched. **Use editor angle**
+explicitly copies the Editor camera's position/aim into the composition camera. Lens is canonical millimeters; the perspective
 camera uses Three.js `filmGauge = 36`, zoom 1, horizontal fit in landscape and
 vertical fit in portrait. Aspect changes reapply focal length. At 3:2, 50 mm has
 approximately 26.99147° vertical FOV.
@@ -179,9 +190,9 @@ PNG hides joints, light icons, gizmos and grid.
 
 Static FK posing only: no IK, joint constraints, animation, finger articulation,
 rig authoring or user model import. Figures are stylized muscular reference bodies,
-not medical anatomy. Extreme rotations can self-intersect or pinch. Figure
-color multiplies the source body texture as a tint; it does not replace facial
-details or promise an exact flat swatch under lighting. Furniture and windowed walls are original,
+not medical anatomy. Extreme rotations can self-intersect or pinch. Skin and outfit albedo maps are
+luminance-normalized at runtime so chosen colors render without baked orange/grey
+tint bias while preserving anatomical shading and seams under studio lighting. Furniture and windowed walls are original,
 simple procedural references, not architectural CAD. No collision/ground snap.
 The window openings are real geometry gaps; no external textures.
 

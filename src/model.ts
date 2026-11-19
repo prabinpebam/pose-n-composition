@@ -4,13 +4,21 @@ export type Joint = typeof JOINTS[number];
 export type Pose = Record<Joint, Vec3>;
 export type Body = 'male' | 'female';
 export const DEFAULT_HAIR_COLOR = '#3b2720';
+export const DEFAULT_MALE_SKIN_COLOR = '#d9a17c';
+export const DEFAULT_FEMALE_SKIN_COLOR = '#e8b896';
+export const DEFAULT_MALE_OUTFIT_COLOR = '#2f435e';
+export const DEFAULT_FEMALE_OUTFIT_COLOR = '#8f304d';
+export const defaultSkinColor = (body: Body): string =>
+  body === 'female' ? DEFAULT_FEMALE_SKIN_COLOR : DEFAULT_MALE_SKIN_COLOR;
+export const defaultOutfitColor = (body: Body): string =>
+  body === 'female' ? DEFAULT_FEMALE_OUTFIT_COLOR : DEFAULT_MALE_OUTFIT_COLOR;
 export const HAIR_STYLE_IDS = ['parted', 'long', 'buns', 'buzz', 'partedBeard', 'none'] as const;
 export type HairStyleId = typeof HAIR_STYLE_IDS[number];
 export const PROP_KINDS = ['lamp', 'table', 'chair', 'desk', 'couch', 'bed', 'room'] as const;
 export type PropKind = typeof PROP_KINDS[number];
 export interface Item {
   id: string; name: string; kind: Body | PropKind | 'light'; color: string;
-  position: Vec3; rotation: Vec3; scale: Vec3; pose?: Pose; hairColor?: string; hairStyle?: HairStyleId; intensity?: number; target?: Vec3;
+  position: Vec3; rotation: Vec3; scale: Vec3; pose?: Pose; outfitColor?: string; hairColor?: string; hairStyle?: HairStyleId; intensity?: number; target?: Vec3;
 }
 export interface CameraState {
   position: Vec3; target: Vec3; focalLength: number; near: number; far: number;
@@ -205,9 +213,16 @@ export function createItem(kind: Item['kind'], index = 0): Item {
   const body = isBody(kind);
   return {
     id: crypto.randomUUID(), name: `${kind[0].toUpperCase()}${kind.slice(1)} ${index + 1}`, kind,
-    color: body ? (kind === 'male' ? '#b9c9d1' : '#d3b8a5') : kind === 'light' ? '#fff1db' : '#a59987',
+    color: body ? defaultSkinColor(kind) : kind === 'light' ? '#fff1db' : '#a59987',
     position: [index * 0.6, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1],
-    ...(body ? { pose: neutralPose(), hairColor: DEFAULT_HAIR_COLOR, hairStyle: (kind === 'female' ? 'long' : 'parted') as HairStyleId } : {}),
+    ...(body
+      ? {
+          pose: neutralPose(),
+          outfitColor: defaultOutfitColor(kind),
+          hairColor: DEFAULT_HAIR_COLOR,
+          hairStyle: (kind === 'female' ? 'long' : 'parted') as HairStyleId,
+        }
+      : {}),
     ...(kind === 'light' ? { position: [3, 5, 3] as Vec3, target: [0, 1, 0] as Vec3, intensity: 30 } : {}),
   };
 }
@@ -255,6 +270,7 @@ export function validatePortable(value: unknown): Portable {
     const item: Item = { id, kind, name: text(i.name), color: color(i.color), position: vec(i.position), rotation: vec(i.rotation, -Math.PI * 2, Math.PI * 2), scale: vec(i.scale, 0.05, 10) };
     if (isBody(kind)) {
       item.pose = validatePose(i.pose);
+      item.outfitColor = i.outfitColor === undefined ? defaultOutfitColor(kind) : color(i.outfitColor);
       item.hairColor = i.hairColor === undefined ? DEFAULT_HAIR_COLOR : color(i.hairColor);
       item.hairStyle = i.hairStyle === undefined ? (kind === 'female' ? 'long' : 'parted') : enumValue(i.hairStyle, HAIR_STYLE_IDS);
     }
@@ -272,11 +288,30 @@ export function validatePortable(value: unknown): Portable {
   };
 }
 export const MAX_FILE_BYTES = 1_000_000;
+export function validatePoseFile(value: unknown): PoseFile {
+  const v = obj(value);
+  if (v.schemaVersion !== 1 || v.rigVersion !== 1) fail('unsupported schemaVersion or rigVersion');
+  if (v.type !== 'pose') fail('expected a pose JSON file (type "pose")');
+  return {
+    schemaVersion: 1,
+    rigVersion: 1,
+    type: 'pose',
+    name: text(v.name),
+    body: enumValue(v.body, ['male', 'female']),
+    pose: validatePose(v.pose),
+  };
+}
 export function parseFile(source: string): Portable {
   if (new TextEncoder().encode(source).length > MAX_FILE_BYTES) fail('file exceeds 1 MB');
   let value: unknown;
   try { value = JSON.parse(source); } catch { return fail('not valid JSON'); }
   return validatePortable(value);
+}
+export function parsePoseFile(source: string): PoseFile {
+  if (new TextEncoder().encode(source).length > MAX_FILE_BYTES) fail('file exceeds 1 MB');
+  let value: unknown;
+  try { value = JSON.parse(source); } catch { return fail('not valid JSON'); }
+  return validatePoseFile(value);
 }
 export function poseFile(item: Item, name: string): PoseFile {
   if (!isBody(item.kind) || !item.pose) throw new Error('Select a figure to save a pose.');

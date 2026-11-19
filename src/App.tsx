@@ -29,12 +29,14 @@ import {
   clone,
   createItem,
   DEFAULT_HAIR_COLOR,
+  defaultOutfitColor,
   degrees,
   initialScene,
   isBody,
   JOINTS,
   MAX_FILE_BYTES,
   parseFile,
+  parsePoseFile,
   poseFile,
   PRESETS,
   preset,
@@ -152,8 +154,11 @@ export function App() {
   const host = useRef<HTMLDivElement>(null),
     engine = useRef<Studio | null>(null),
     file = useRef<HTMLInputElement>(null),
+    poseJsonFile = useRef<HTMLInputElement>(null),
     animFile = useRef<HTMLInputElement>(null);
   const orbitViewRef = useRef<OrbitViewState>(clone(DEFAULT_ORBIT_VIEW));
+  const cameraGestureBaseRef = useRef<SceneState | null>(null);
+  const isDraggingCameraRef = useRef(false);
   const saverRef = useRef<WorkingDraftAutoSaver | null>(null);
 
   const liveSettings = useRef({ selected, joint, view, mode, showJoints, showHelpers });
@@ -307,6 +312,9 @@ export function App() {
   const editCamera = (patch: Partial<SceneState['camera']>) => update(next => Object.assign(next.camera, patch));
   const undo = useCallback(
     (redo = false) => {
+      engine.current?.cancelCameraGesture();
+      cameraGestureBaseRef.current = null;
+      isDraggingCameraRef.current = false;
       setAnimPlaying(false);
       setAnimPreviewing(false);
       const from = redo ? future.current : past.current,
@@ -333,6 +341,9 @@ export function App() {
   );
 
   const resetStudio = useCallback(() => {
+    engine.current?.cancelCameraGesture();
+    cameraGestureBaseRef.current = null;
+    isDraggingCameraRef.current = false;
     setAnimPlaying(false);
     setAnimPreviewing(false);
     const fresh = initialScene();
@@ -375,6 +386,53 @@ export function App() {
     if (selected) removeItemById(selected);
   }, [selected, removeItemById]);
 
+  const handleCameraOrbitGesture = useCallback(
+    (cameraPose: OrbitViewState, settled: boolean) => {
+      if (!settled) {
+        if (!cameraGestureBaseRef.current) {
+          cameraGestureBaseRef.current = clone(current.current);
+        }
+        isDraggingCameraRef.current = true;
+        const liveNext: SceneState = {
+          ...current.current,
+          camera: {
+            ...current.current.camera,
+            position: clone(cameraPose.position),
+            target: clone(cameraPose.target),
+          },
+        };
+        current.current = liveNext;
+        setDoc(liveNext);
+        saverRef.current?.schedule(buildDraft(liveNext));
+        return;
+      }
+
+      isDraggingCameraRef.current = false;
+      const base = cameraGestureBaseRef.current ?? clone(current.current);
+      cameraGestureBaseRef.current = null;
+      const finalScene: SceneState = {
+        ...clone(current.current),
+        camera: {
+          ...current.current.camera,
+          position: clone(cameraPose.position),
+          target: clone(cameraPose.target),
+        },
+      };
+      const unchanged =
+        base.camera.position.every((v, idx) => Math.abs(v - finalScene.camera.position[idx]!) <= 1e-4) &&
+        base.camera.target.every((v, idx) => Math.abs(v - finalScene.camera.target[idx]!) <= 1e-4);
+      if (unchanged) return;
+      past.current.push(base);
+      if (past.current.length > 100) past.current.shift();
+      future.current = [];
+      current.current = finalScene;
+      setDoc(finalScene);
+      historyUpdate(t => t + 1);
+      void saverRef.current?.saveNow(buildDraft(finalScene));
+    },
+    [buildDraft],
+  );
+
   const studioCallbacksRef = useRef({
     change: (next: SceneState) => commit(next),
     liveChange: (liveScene: SceneState) => {
@@ -388,6 +446,7 @@ export function App() {
         saverRef.current?.schedule(buildDraft(undefined, { editorCamera: orbit }));
       }
     },
+    cameraChange: handleCameraOrbitGesture,
     select,
     error: report,
   });
@@ -404,6 +463,7 @@ export function App() {
         saverRef.current?.schedule(buildDraft(undefined, { editorCamera: orbit }));
       }
     },
+    cameraChange: handleCameraOrbitGesture,
     select,
     error: report,
   };
@@ -469,6 +529,7 @@ export function App() {
           change: next => studioCallbacksRef.current.change(next),
           liveChange: live => studioCallbacksRef.current.liveChange(live),
           orbitChange: (orbit, settled) => studioCallbacksRef.current.orbitChange(orbit, settled),
+          cameraChange: (pose, settled) => studioCallbacksRef.current.cameraChange(pose, settled),
           select: (id, j) => studioCallbacksRef.current.select(id, j),
           error: err => studioCallbacksRef.current.error(err),
         });
@@ -517,7 +578,7 @@ export function App() {
   }, [notify, report, retry]);
 
   useEffect(() => {
-    if (!saverRef.current?.isHydrated()) return;
+    if (!saverRef.current?.isHydrated() || isDraggingCameraRef.current) return;
     void saverRef.current.saveNow(
       buildDraft(doc, {
         selectedId: selected,
@@ -799,6 +860,31 @@ export function App() {
     }
   };
 
+  const exportSelectedPoseJson = () => {
+    try {
+      if (!item || !isBody(item.kind)) throw new Error('Select a figure before exporting a pose.');
+      const poseTitle = `${(item.name || item.kind).trim()}-pose`;
+      download(validatePortable(poseFile(item, poseTitle)));
+      notify(`Exported pose JSON for ${item.name}.`);
+    } catch (e) {
+      report(e);
+    }
+  };
+
+  const importSelectedPoseJson = async (f: File) => {
+    try {
+      if (!item || !isBody(item.kind)) throw new Error('Select a figure before importing a pose JSON file.');
+      if (f.size > MAX_FILE_BYTES) throw new Error('File exceeds the 1 MB import limit.');
+      const parsed = parsePoseFile(await f.text());
+      setAnimPlaying(false);
+      setAnimPreviewing(false);
+      editItem(applyPose(item, parsed));
+      notify(`Imported pose "${parsed.name}" onto ${item.name}.`);
+    } catch (err) {
+      report(err);
+    }
+  };
+
   const exportJson = (type: 'scene' | 'pose') => {
     try {
       download(validatePortable(type === 'scene' ? { ...doc, name: saveName.trim() || doc.name } : poseFile(item!, saveName.trim() || 'My pose')));
@@ -1046,7 +1132,7 @@ export function App() {
                   setMode(m);
                 }}
               />
-              <button type="button" onClick={() => engine.current?.focusSelected()} disabled={view}>
+              <button type="button" onClick={() => engine.current?.focusSelected()}>
                 Frame <kbd>F</kbd>
               </button>
             </div>
@@ -1074,20 +1160,22 @@ export function App() {
                     : 'PERSPECTIVE · EDITOR'}
               </span>
             </div>
-            {!view && (
-              <div className="viewport-bottom">
-                <span className="hud-chip">Left drag: orbit · Right drag: pan · Wheel: zoom</span>
-                <button type="button" className="hud-btn" onClick={() => setHelp(true)}>
-                  Controls & workflow
-                </button>
-              </div>
-            )}
+            <div className="viewport-bottom">
+              <span className="hud-chip">
+                {view
+                  ? 'Camera framing · Left drag: orbit · Right drag: pan · Wheel: zoom'
+                  : 'Left drag: orbit · Right drag: pan · Wheel: zoom'}
+              </span>
+              <button type="button" className="hud-btn" onClick={() => setHelp(true)}>
+                Controls & workflow
+              </button>
+            </div>
           </div>
 
           <footer className="statusbar">
             <span>{item ? `${item.name}${joint ? ` · ${label(joint)}` : ' · Root transform'}` : 'Select an object to begin'}</span>
             <span>
-              {view ? 'Camera view · editor helpers hidden' : 'Meters · 17-joint FK rig · WebGL'} ·{' '}
+              {view ? 'Camera view · drag to frame · helpers hidden' : 'Meters · 17-joint FK rig · WebGL'} ·{' '}
               <a href={`${import.meta.env.BASE_URL}THIRD_PARTY_NOTICES.txt`} target="_blank" rel="noreferrer">
                 Licenses
               </a>
@@ -1131,12 +1219,17 @@ export function App() {
                         />
                       </label>
                       <ColorField
-                        label={item.kind === 'light' ? 'Light color' : 'Surface tint'}
+                        label={isBody(item.kind) ? 'Skin color' : item.kind === 'light' ? 'Light color' : 'Surface tint'}
                         value={item.color}
                         onChange={color => editItem({ color })}
                       />
                       {isBody(item.kind) && (
                         <>
+                          <ColorField
+                            label="Outfit / dress color"
+                            value={item.outfitColor ?? defaultOutfitColor(item.kind)}
+                            onChange={outfitColor => editItem({ outfitColor })}
+                          />
                           <div className="select-field">
                             <span className="field-label">Hairstyle</span>
                             <SelectDropdown
@@ -1237,6 +1330,28 @@ export function App() {
                           Save pose…
                         </button>
                       </div>
+                      <div className="stack-gap">
+                        <div className="two">
+                          <button type="button" onClick={exportSelectedPoseJson}>
+                            {Icons.download} Export pose JSON
+                          </button>
+                          <button type="button" onClick={() => poseJsonFile.current?.click()}>
+                            {Icons.upload} Import pose JSON
+                          </button>
+                        </div>
+                      </div>
+                      <input
+                        ref={poseJsonFile}
+                        className="sr-only"
+                        aria-label="Import pose JSON file"
+                        type="file"
+                        accept=".pose.json,.json,application/json"
+                        onChange={async e => {
+                          const f = e.target.files?.[0];
+                          e.target.value = '';
+                          if (f) await importSelectedPoseJson(f);
+                        }}
+                      />
                     </section>
                   )}
 
@@ -1426,7 +1541,9 @@ export function App() {
                 <section>
                   <div className="eyebrow">COMPOSE · CAMERA</div>
                   <h2>Composition frame</h2>
-                  <p className="muted">Independent from your perspective editor orbit camera.</p>
+                  <p className="muted">
+                    Orbit, pan, and zoom directly in Camera view to frame your shot, or fine-tune coordinates below.
+                  </p>
                   <div className="two">
                     <button type="button" className={view ? 'active' : ''} onClick={() => setView(!view)}>
                       {view ? 'Return to editor' : 'Inspect camera'}
@@ -1748,15 +1865,17 @@ export function App() {
               </p>
               <h3>02 / Style & Compose</h3>
               <p>
-                Switch sculpted hairstyles (side-parted, shoulder-length waves, twin buns, short crop, parted + beard, or
-                bald) and tint hair, eyebrows, and eyelashes together. Add props and lights, frame your shot in Camera,
-                and export clean 1600 px PNG renders.
+                Customize true-color skin tones, outfit / dress colors, sculpted hairstyles (side-parted, shoulder-length
+                waves, twin buns, short crop, parted + beard, or bald), and hair &amp; brow colors independently. Add
+                props and lights, orbit / pan / zoom directly inside Camera view to frame your shot, and export clean
+                1600 px PNG renders.
               </p>
               <h3>03 / Keep your work</h3>
               <p>
                 Every viewport drag, camera move, and inspector edit autosaves immediately to IndexedDB and reloads
-                automatically — use <strong>Reset</strong> anytime to return to a fresh stage (with Undo). Library
-                stores named scenes and poses separately, or exports portable v1 JSON files.
+                automatically — use <strong>Reset</strong> anytime to return to a fresh stage (with Undo). Export or
+                import portable <code>.pose.json</code> files directly from a figure&rsquo;s Pose panel, or manage full
+                scenes in Library.
               </p>
               <dl className="shortcuts">
                 <dt>Left drag / Right drag / Wheel</dt>

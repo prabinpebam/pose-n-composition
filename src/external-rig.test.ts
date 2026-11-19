@@ -3,7 +3,13 @@ import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as T from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { buildExternalFigure, setFigureHairStyle, SOURCE_BONES } from './external-rig';
+import {
+  buildExternalFigure,
+  buildNormalizedBodyOutfitRgba,
+  setFigureColors,
+  setFigureHairStyle,
+  SOURCE_BONES,
+} from './external-rig';
 import { HAIR_STYLES, registerHairTemplate, type HairAssetId } from './hair';
 import { getJointRotation, setFigurePose, type Figure } from './rig';
 import { JOINTS, neutralPose, PRESETS, preset, type Body } from './model';
@@ -142,5 +148,80 @@ describe.each(['male', 'female'] as const)('ready-made %s rig', body => {
     scalp.geometry.dispose(); a.hairMaterials.forEach(m => m.dispose());
     expect(b.hairMaterials.map(m => m.color.getHexString())).toEqual(original);
     expect(b.root.getObjectByName('Scalp hair')).not.toBe(scalp);
+  });
+  it('tints skin, outfit, hair, and eyes independently across multiple clones of the same gender', () => {
+    const a = buildExternalFigure(body, templates.get(body)!, '#f5d0ba', '#1e6b52');
+    const b = buildExternalFigure(body, templates.get(body)!, '#5c3824', '#8a2be2');
+    const eyesA = a.skins.find(s => s.name === 'Eyes')!;
+    const eyeMatBefore = (eyesA.material as T.MeshStandardMaterial).color.getHexString();
+
+    expect(a.tintMaterials[0].color.getHexString()).toBe('f5d0ba');
+    expect(a.outfitColorUniforms[0].value.getHexString()).toBe('1e6b52');
+    expect(b.tintMaterials[0].color.getHexString()).toBe('5c3824');
+    expect(b.outfitColorUniforms[0].value.getHexString()).toBe('8a2be2');
+
+    setFigureColors(a, '#8d5524', '#d94862', '#eeddcc');
+    expect(a.tintMaterials[0].color.getHexString()).toBe('8d5524');
+    expect(a.outfitColorUniforms[0].value.getHexString()).toBe('d94862');
+    expect(a.hairMaterials.every(m => m.color.getHexString() === 'eeddcc')).toBe(true);
+    expect((eyesA.material as T.MeshStandardMaterial).color.getHexString()).toBe(eyeMatBefore);
+
+    // Clone B stays completely untouched.
+    expect(b.tintMaterials[0].color.getHexString()).toBe('5c3824');
+    expect(b.outfitColorUniforms[0].value.getHexString()).toBe('8a2be2');
+
+    // Verify shader hook injects uOutfitColor uniform without multiplying alpha.
+    const fakeShader = {
+      uniforms: {} as Record<string, { value: unknown }>,
+      vertexShader: '',
+      fragmentShader: '#include <common>\nvoid main() {\n#include <map_fragment>\n}',
+    };
+    a.tintMaterials[0].onBeforeCompile(fakeShader as unknown as T.WebGLProgramParametersWithUniforms, {} as T.WebGLRenderer);
+    expect(fakeShader.uniforms.uOutfitColor).toBe(a.outfitColorUniforms[0]);
+    expect(fakeShader.fragmentShader).toContain('mix( diffuse, uOutfitColor, sampledDiffuseColor.a )');
+    expect(fakeShader.fragmentShader).not.toContain('diffuseColor *= sampledDiffuseColor');
+  });
+});
+
+describe('luminance normalization and outfit alpha separation', () => {
+  it('neutralizes baked orange skin bias, separates matte charcoal outfit, and preserves anatomical & trim shading', () => {
+    // 6 pixels: [mid skin, sunlit skin, shaded skin, dark eye-rim skin, mid charcoal outfit, lighter outfit waistband seam]
+    const base = new Uint8ClampedArray([
+      170, 116, 81, 255,
+      196, 138, 99, 255,
+      142, 94, 64, 255,
+      78, 52, 42, 255,
+      54, 54, 54, 255,
+      64, 64, 64, 255,
+    ]);
+    const rough = new Uint8ClampedArray([
+      0, 168, 0, 255,
+      0, 168, 0, 255,
+      0, 172, 0, 255,
+      0, 165, 0, 255,
+      0, 253, 0, 255,
+      0, 253, 0, 255,
+    ]);
+
+    const { rgba } = buildNormalizedBodyOutfitRgba(base, 6, 1, rough);
+    for (let p = 0; p < 6; p++) {
+      const o = p * 4;
+      // Every texel is pure neutral grayscale (zero R/G/B hue contamination).
+      expect(rgba[o]).toBe(rgba[o + 1]);
+      expect(rgba[o + 1]).toBe(rgba[o + 2]);
+    }
+    // Skin midtone normalizes near ~0.92 (236/255) with preserved highlight > midtone > shadow.
+    expect(rgba[0]).toBeGreaterThanOrEqual(225);
+    expect(rgba[4]).toBeGreaterThan(rgba[0]!);
+    expect(rgba[0]).toBeGreaterThan(rgba[8]!);
+    // All 4 skin texels (including dark low-roughness eye rim) keep outfit mask === 0!
+    expect(rgba[3]).toBe(0);
+    expect(rgba[7]).toBe(0);
+    expect(rgba[11]).toBe(0);
+    expect(rgba[15]).toBe(0);
+    // Both matte charcoal outfit texels get full outfit mask === 255 with seam contrast preserved!
+    expect(rgba[19]).toBe(255);
+    expect(rgba[23]).toBe(255);
+    expect(rgba[20]).toBeGreaterThan(rgba[16]!);
   });
 });

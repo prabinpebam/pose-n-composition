@@ -182,14 +182,20 @@ describe('IndexedDB immediate working-draft autosave and reload restoration', ()
     const scene = initialScene();
     scene.items[0]!.pose!.leftShoulder = [radians(-62), radians(24), radians(18)];
     scene.items[0]!.pose!.rightElbow = [radians(-94), radians(12), 0];
+    scene.items[0]!.color = '#8d5524';
+    scene.items[0]!.outfitColor = '#1e6b52';
     scene.items[0]!.hairStyle = 'buns';
     scene.items[0]!.hairColor = '#cc4422';
+    scene.items[1]!.color = '#f5d0ba';
+    scene.items[1]!.outfitColor = '#9b2c62';
     scene.items[1]!.pose = preset('Heroic');
     const chair = createItem('chair', 0);
     chair.position = [1.35, 0, -0.45];
     chair.rotation = [0, radians(35), 0];
     scene.items.push(chair);
     scene.background = '#1f2328';
+    scene.camera.position = [1.85, 1.62, 3.15];
+    scene.camera.target = [0.22, 1.08, -0.14];
     scene.camera.focalLength = 85;
     scene.camera.aspect = '4:5';
     scene.camera.dof = true;
@@ -200,7 +206,7 @@ describe('IndexedDB immediate working-draft autosave and reload restoration', ()
         editorCamera: { position: [4.8, 3.1, 2.9], target: [0.35, 1.15, -0.2] },
         selectedId: scene.items[0]!.id,
         selectedJoint: 'rightElbow',
-        cameraView: false,
+        cameraView: true,
         transformMode: 'rotate',
       },
     };
