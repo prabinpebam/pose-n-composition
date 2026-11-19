@@ -34,8 +34,11 @@ the npm 11 CLI bundled alongside Node resolved it without global configuration c
 
 ## Two workflows
 
-**Pose:** Add/select Male or Female → choose a preset → select a gold joint or
-choose **Editing** → drag local rotation rings or enter XYZ degrees → save pose
+**Pose:** Click a figure in the viewport (or its Scene row), then click a gold
+joint node on its body. The node turns coral and the local rotation rings attach
+there. Drag a colored ring to rotate that bone and its skin. No dropdown or
+preset is required. **Editing**, XYZ degrees and presets are optional alternatives.
+Save pose
 locally / download pose JSON. **Neutral / reset** resets joints, not the root.
 Seated/kneeling presets intentionally preserve root height: lower the figure to
 the floor or furniture using Root Position Y.
@@ -58,7 +61,7 @@ is scene appearance, so applying or resetting a pose does not change it.
 |---|---|
 | Orbit / pan / zoom | Left drag / right drag / wheel |
 | Whole-object move / rotate / scale | Labeled toolbar or W / E / R |
-| Joint rotate | Gold marker or Editing dropdown; local rotation rings |
+| Joint rotate | Click a gold node, then drag a colored ring; Editing is optional |
 | Frame selected / camera view | Frame or F / Camera view or C |
 | Return to root / dismiss help | Escape |
 | Undo / redo | Buttons or Ctrl/Cmd Z / Ctrl/Cmd Shift Z |
@@ -66,8 +69,26 @@ is scene appearance, so applying or resetting a pose does not change it.
 
 Dragging a gizmo disables orbit until release. Named joint editing affects only
 that bone and its descendants. Left/right are the figure's anatomical sides.
+Gold nodes have constant screen size with a 10 px picking radius and take
+priority over skin and overlapping gizmos. Hover highlights a node white;
+selection is coral. Drag away from nodes and rings to orbit.
 Helper visibility is a localStorage preference. Small windows place the inspector
 below the viewport; desktop is the primary workflow.
+
+### Gesture regression check
+
+`npm test` includes overlay picking, hidden/clipped targets and constant-size
+marker regressions. [scripts/posing-smoke.mjs](scripts/posing-smoke.mjs) additionally
+exports `runPosingSmoke(page, options)` for an existing Playwright host; it is not
+part of the Node-only unit suite and adds no dependency.
+Use a fresh isolated page, wait for assets, then run it against localhost or the
+live app. It clicks the rendered nodes and drags rendered rotation rings for
+eight joints on both figures, checks actual skinned vertices, correct attachment,
+hair following head/neck, camera/root/opposite-limb/other-figure isolation, and
+one-step undo/redo. Optional `screenshotDirectory`, `bodies` and `joints` select
+evidence capture or repeated/duplicate-figure cases. Instrumentation observes
+the React-held engine only; it never sets poses or invokes engine editing methods.
+Do not run it in an owner's working tab.
 
 ## Persistence and portable files
 

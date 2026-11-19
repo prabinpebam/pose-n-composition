@@ -25,7 +25,7 @@ Unchecked items are not completion claims. Evidence is recorded after execution.
 | Requirement | Acceptance | Evidence |
 |---|---|---|
 | Distinct figures | Legally redistributable ready-made male/female rigged bodies, verified sources/licenses, semantic-joint mapping; multiple coexist | PASS: Quaternius free Standard Superhero pair, exact included CC0; 65 bones / three skins each, 17 mapped controls; actual browser screenshots and source-rig tests |
-| Static posing | Select named joints, rotate FK, root W/E/R, presets, neutral reset, undo/redo | PASS: source-rig tests on both sexes; browser left elbow -110, opposite elbow 0; neutral/reach/seated/contrapposto and undo/redo; root carries eyes/eyebrows too |
+| Static posing | Click visible joint nodes, rotate FK by real pointer drag, root W/E/R, presets, neutral reset, undo/redo | LOCAL PASS after Nov 19 repair: 16 actual node-click/ring-drag cases across both figures, sampled skin movement and one-step undo/redo; prior inspector/preset checks did not establish this workflow. Public gesture verification recorded separately below. |
 | Hair appearance | Visible scalp hair, brows and lashes on both source figures; independent per-figure hair color follows head; scene persistence, old-save compatibility and history | PASS: 40-test suite; local and LIVE close-ups, both-sex duplicate/delete isolation, head turns, color undo/redo and scene save-refresh-load; live DOF PNG includes both hair colors |
 | Props | Lamp, table, chair, desk, couch, bed, windowed room; transforms and colors | PASS: four persisted prop tests (including nine window-opening rays and material isolation); all seven coexist in actual 10-object UI scene |
 | Lighting | Position, target, color and intensity change actual scene illumination | PASS: actual image mean RGB differences 12.40 / 73.94 / 42.43 / 73.94 respectively |
@@ -101,7 +101,9 @@ Unchecked items are not completion claims. Evidence is recorded after execution.
   **17/17 matched exactly**, while female root `[0.55, 0, 0.05]` remained unchanged.
   Male and female Neutral, Seated, Reach and Contrapposto remained coherent.
 
-All acceptance rows above have concrete evidence. Known scope limits remain
+Historical rows describe the checks actually executed, not a guarantee of
+uncovered workflows: the Nov 19 report exposed a missing point-selection test
+despite earlier numeric/preset posing checks. Known scope limits remain
 intentional: FK only, no collision/ground snap, source Superhero proportions,
 roughly 31.5 MB initial assets, artistic raster bokeh rather than calibrated
 f-stops, browser-local storage requiring portable backups, and desktop-first UI.
@@ -158,6 +160,56 @@ failures are hidden by that warning.
 - Actual live male and female duplicates were separately recolored and head-rotated
   65 degrees, then deleted. Survivors retained their original colors and respective
   +30 / -30 head angles; both rendered without errors.
+
+## Visible-node posing repair (2026-11-19)
+
+### Reproduction and root cause
+
+- On the old live release `bac4103`, at 1440 x 1000, exact clicks on the male's
+  visible head (603.8, 418.1), left shoulder (637.2, 447.0), elbow (630.7, 488.5),
+  wrist (590.2, 500.6) and knee (625.7, 596.2) all left Root selected.
+- Gold markers rendered with depth testing disabled, but picking sorted skin and
+  nodes together by physical ray distance. Skin won even though the node was
+  visibly on top: head skin 6.358 m versus marker 6.423 m; elbow 6.399 versus
+  6.422 m. Previous inspector, preset and state/render tests missed that defect.
+- Picking now uses the visible node's screen position first, with a 10 CSS pixel
+  radius and a constant 5 px visible radius across distance/root scale. Capture-
+  phase pointer ownership gives nodes priority over skin and overlapping gizmos.
+  Selected nodes turn coral; hover is white with a joint-name tooltip.
+- Clicking a node attaches rotation controls immediately, without a dropdown.
+  Ring dragging still belongs to TransformControls; background dragging belongs
+  to OrbitControls. Only changed transforms create a history entry. Release and
+  pointer cancellation restore navigation.
+
+### Local verification
+
+- `npm test`: **43/43 tests in four files**, including three focused marker
+  regressions. `npm run build`: strict TypeScript and production build pass.
+  Vite's existing non-failing bundle-size advisory remains.
+- `scripts/posing-smoke.mjs` used actual Playwright mouse clicks and 16-step
+  ring drags, never engine setters, injected poses or numeric joint inputs.
+  All **16 cases passed**: shoulder, elbow, wrist, head, neck, hip, knee and ankle
+  on male and female. Sampled actual skin movement was **0.01677-0.12238 m**.
+- Every case checked the correct attached bone/coral marker; camera and root
+  unchanged; opposite limb and every other figure unchanged; orbit disabled
+  during drag/restored afterward; one Undo restores the previous skin and one
+  Redo restores the dragged skin. Head/neck also carry the scalp geometry.
+- Both figures then passed **10 more gestures** after the Reach preset, including
+  three consecutive elbow drags each. Male/female same-gender copies passed
+  **eight gestures**, with originals and all other skins unchanged.
+- Named scene save -> refresh -> load restored all five objects, all joint
+  values, camera/background, independent gold/purple hair and brown copies.
+  A further **six actual pointer gestures** passed after loading. Preferences
+  were unchanged; no owner tab, existing save, license or source asset was touched.
+- Canvas skin click selected the other figure; background drag changed only the
+  editor camera; camera-view navigation stayed disabled and restored on return.
+  A pointer-cancel event after an actual ring press restored orbit and ended
+  dragging. No application/console errors occurred during the gesture runs.
+
+### Public verification
+
+Deployment and fresh live gesture results are pending until the repair is
+published; the local results above are not a live acceptance claim.
 - Live DOF camera export encoded **1600 x 1067, 1,158,642-byte PNG**, matching the
   local verified rendering. Only uniquely named test saves created for these checks
   were removed; existing user records and preferences were not cleared.
