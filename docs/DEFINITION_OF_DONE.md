@@ -160,6 +160,9 @@ failures are hidden by that warning.
 - Actual live male and female duplicates were separately recolored and head-rotated
   65 degrees, then deleted. Survivors retained their original colors and respective
   +30 / -30 head angles; both rendered without errors.
+- Live DOF camera export encoded **1600 x 1067, 1,158,642-byte PNG**, matching the
+  local verified rendering. Only uniquely named test saves created for these checks
+  were removed; existing user records and preferences were not cleared.
 
 ## Visible-node posing repair (2026-11-19)
 
@@ -234,6 +237,3 @@ failures are hidden by that warning.
   Scene row); helpers must be enabled and editor view active. Coincident nodes
   are resolved by nearest screen center/depth; orbit to separate exactly
   overlapping joints. This is FK, not IK or anatomical joint limiting.
-- Live DOF camera export encoded **1600 x 1067, 1,158,642-byte PNG**, matching the
-  local verified rendering. Only uniquely named test saves created for these checks
-  were removed; existing user records and preferences were not cleared.
