@@ -3,6 +3,8 @@
 Verified and acquired **2026-11-18**. Author: **Quaternius**. These figures are
 third-party assets, not original artwork by this application's authors.
 
+For non-shipped candidates, see the [26-model Sketchfab intake receipt](SKETCHFAB_INTAKE.md).
+
 ## Selected distribution and license
 
 The selected male/female pair comes from the official free
@@ -59,7 +61,7 @@ binary buffers and PNG textures. The original glTF and binary files are
 unchanged. Alongside the two base bodies, the six official sculpted hairstyles
 from the same CC0 `Universal Base Characters[Standard].zip` archive
 (`Universal Base Characters[Standard]/Hairstyles/glTF/`) are shipped in the same
-folder so they share `T_Hair_1_Albedo.png` and `T_Hair_1_Normal_png.png`:
+folder so they can use the supplied hair textures:
 
 | File | Bytes | SHA-256 |
 | --- | ---: | --- |
@@ -95,6 +97,13 @@ selected distribution supplies byte-identical copies at the referenced names:
 No pixel edits, geometry changes, invented textures, glTF rewrites or
 re-exports were needed. All other shipped dependency filenames match the archive
 exactly.
+
+The Beard, Buzzed, BuzzedFemale and SimpleParted hairstyle glTFs use the
+original spelling `T_Hair_1_Normal.png`. That byte-identical CC0 file is also
+present, so ordinary glTF loaders need no application-specific URL rewrite.
+Checked all eight body/hair glTFs on 2026-11-20: all 34 relative buffer/image
+references (21 distinct files) resolve with exact case. Buffer lengths match
+their declarations and all referenced PNGs pass integrity checks.
 
 ### Sculpted CC0 hairstyles and facial hair color
 
