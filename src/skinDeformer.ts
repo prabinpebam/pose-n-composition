@@ -1246,8 +1246,8 @@ function restoreBindAttributesIfPassThrough(state: FigureSkinState): void {
 
 function resolveDeltaMushIterations(weldCount: number, explicit?: number): number {
   if (explicit !== undefined) return explicit;
-  // Subdivided Catmull-Clark meshes (>25k welded verts) already have small smooth triangles, so 2 Jacobi passes match 6 passes on coarse cages at 3x speed
-  return weldCount > 25_000 ? 2 : 6;
+  // Subdivided Catmull-Clark meshes (>25k welded verts) already have fine smooth triangles, so 1 selective Jacobi pass matches 6 passes on coarse cages while avoiding double 107k-tri normal sweeps
+  return weldCount > 25_000 ? 1 : 6;
 }
 
 function ensureFigureSkinState(figure: Figure, options?: SkinDeformerOptions): FigureSkinState {
@@ -2190,32 +2190,57 @@ export function evaluateSkinDeformation(
   const { weldedPos } = state;
   if (enableDeltaMush && dmIters > 0) {
     const smoothed = runSelectiveCsrJacobi(skinnedPos, tpl, dmIters, state.smoothBufA, state.smoothBufB);
+    const { mushActiveIndices } = tpl;
     computeWeldedNormalsAndTangents(triIndices, vToWeld, smoothed, weldCount, state.smoothWeldNorm);
-    for (let w = 0; w < weldCount; w++) {
-      const w3 = w * 3;
-      if (mushLambda[w]! <= 0) {
-        weldedPos[w3] = skinnedPos[w3]!;
-        weldedPos[w3 + 1] = skinnedPos[w3 + 1]!;
-        weldedPos[w3 + 2] = skinnedPos[w3 + 2]!;
-        continue;
+    if (mushActiveIndices.length < weldCount * 0.65) {
+      weldedPos.set(skinnedPos);
+      for (let idx = 0; idx < mushActiveIndices.length; idx++) {
+        const w = mushActiveIndices[idx]!;
+        const w3 = w * 3;
+        const curEdgeLen = buildVertexTangentBasis(
+          w,
+          smoothed,
+          state.smoothWeldNorm,
+          refNeighbor,
+          refNeighbor2,
+          _tmpBasis9,
+        );
+        const stretchRatio = curEdgeLen / state.restRefEdgeLen[w]!;
+        const detailScale = clamp(smoothstep(0.35, 0.85, stretchRatio), 0.35, 1.0);
+        const d0 = state.restDeltasTS[w3]! * detailScale;
+        const d1 = state.restDeltasTS[w3 + 1]! * detailScale;
+        const d2 = state.restDeltasTS[w3 + 2]! * detailScale;
+        weldedPos[w3] = smoothed[w3]! + _tmpBasis9[0]! * d0 + _tmpBasis9[3]! * d1 + _tmpBasis9[6]! * d2;
+        weldedPos[w3 + 1] = smoothed[w3 + 1]! + _tmpBasis9[1]! * d0 + _tmpBasis9[4]! * d1 + _tmpBasis9[7]! * d2;
+        weldedPos[w3 + 2] = smoothed[w3 + 2]! + _tmpBasis9[2]! * d0 + _tmpBasis9[5]! * d1 + _tmpBasis9[8]! * d2;
       }
-      const curEdgeLen = buildVertexTangentBasis(
-        w,
-        smoothed,
-        state.smoothWeldNorm,
-        refNeighbor,
-        refNeighbor2,
-        _tmpBasis9,
-      );
-      // Attenuate outward high-frequency detail slightly under strong tangential skin compression so concave folds stay silky
-      const stretchRatio = curEdgeLen / state.restRefEdgeLen[w]!;
-      const detailScale = clamp(smoothstep(0.35, 0.85, stretchRatio), 0.35, 1.0);
-      const d0 = state.restDeltasTS[w3]! * detailScale;
-      const d1 = state.restDeltasTS[w3 + 1]! * detailScale;
-      const d2 = state.restDeltasTS[w3 + 2]! * detailScale;
-      weldedPos[w3] = smoothed[w3]! + _tmpBasis9[0]! * d0 + _tmpBasis9[3]! * d1 + _tmpBasis9[6]! * d2;
-      weldedPos[w3 + 1] = smoothed[w3 + 1]! + _tmpBasis9[1]! * d0 + _tmpBasis9[4]! * d1 + _tmpBasis9[7]! * d2;
-      weldedPos[w3 + 2] = smoothed[w3 + 2]! + _tmpBasis9[2]! * d0 + _tmpBasis9[5]! * d1 + _tmpBasis9[8]! * d2;
+    } else {
+      for (let w = 0; w < weldCount; w++) {
+        const w3 = w * 3;
+        if (mushLambda[w]! <= 0) {
+          weldedPos[w3] = skinnedPos[w3]!;
+          weldedPos[w3 + 1] = skinnedPos[w3 + 1]!;
+          weldedPos[w3 + 2] = skinnedPos[w3 + 2]!;
+          continue;
+        }
+        const curEdgeLen = buildVertexTangentBasis(
+          w,
+          smoothed,
+          state.smoothWeldNorm,
+          refNeighbor,
+          refNeighbor2,
+          _tmpBasis9,
+        );
+        // Attenuate outward high-frequency detail slightly under strong tangential skin compression so concave folds stay silky
+        const stretchRatio = curEdgeLen / state.restRefEdgeLen[w]!;
+        const detailScale = clamp(smoothstep(0.35, 0.85, stretchRatio), 0.35, 1.0);
+        const d0 = state.restDeltasTS[w3]! * detailScale;
+        const d1 = state.restDeltasTS[w3 + 1]! * detailScale;
+        const d2 = state.restDeltasTS[w3 + 2]! * detailScale;
+        weldedPos[w3] = smoothed[w3]! + _tmpBasis9[0]! * d0 + _tmpBasis9[3]! * d1 + _tmpBasis9[6]! * d2;
+        weldedPos[w3 + 1] = smoothed[w3 + 1]! + _tmpBasis9[1]! * d0 + _tmpBasis9[4]! * d1 + _tmpBasis9[7]! * d2;
+        weldedPos[w3 + 2] = smoothed[w3 + 2]! + _tmpBasis9[2]! * d0 + _tmpBasis9[5]! * d1 + _tmpBasis9[8]! * d2;
+      }
     }
   } else {
     weldedPos.set(skinnedPos);

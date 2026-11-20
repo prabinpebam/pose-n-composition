@@ -134,6 +134,18 @@ export function measureFigureMinWorldY(figure: Figure): number {
   const skin = figure.skin;
   skin.skeleton.update();
   const pos = skin.geometry.getAttribute('position');
+  // Fast path: when CPU skinDeformer pass-through is active and figure.root has pure vertical/uniform upright transform,
+  // deformed local positions ARE bind-space positions, so world Y = root.matrixWorld.m13 + sy * localY!
+  const me = skin.matrixWorld.elements;
+  const isUpright = Math.abs(me[1]!) < 1e-7 && Math.abs(me[9]!) < 1e-7 && me[5]! > 0;
+  if (
+    isUpright &&
+    figure.deformation &&
+    figure.deformation.bodyType !== 'chibi' &&
+    skin.geometry.boundingBox
+  ) {
+    return me[5]! * skin.geometry.boundingBox.min.y + me[13]!;
+  }
   const vertex = new T.Vector3();
   let minY = Infinity;
   for (let i = 0; i < pos.count; i++) {
