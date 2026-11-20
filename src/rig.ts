@@ -127,12 +127,42 @@ export function makeFigure(body: Body, color: string): Figure {
   const identityMap = () => Object.fromEntries(JOINTS.map(j => [j, new T.Quaternion()])) as Record<Joint, T.Quaternion>;
   return { root, skin, skins: [skin], bones, restRotations: identityMap(), rotationBases: identityMap(), tintMaterials: [material], outfitColorUniforms: [], hairMaterials: [] };
 }
+export const FLOOR_ANCHOR_TOLERANCE_M = 0.03;
+
+export function measureFigureMinWorldY(figure: Figure): number {
+  figure.root.updateMatrixWorld(true);
+  const skin = figure.skin;
+  skin.skeleton.update();
+  const pos = skin.geometry.getAttribute('position');
+  const vertex = new T.Vector3();
+  let minY = Infinity;
+  for (let i = 0; i < pos.count; i++) {
+    const y = skin.getVertexPosition(i, vertex).applyMatrix4(skin.matrixWorld).y;
+    if (y < minY) minY = y;
+  }
+  return minY;
+}
+
+export function computeAnchoredPositionY(
+  currentPositionY: number,
+  beforeMinWorldY: number,
+  afterMinWorldY: number,
+  floorSnapTolerance = FLOOR_ANCHOR_TOLERANCE_M,
+): number {
+  if (!Number.isFinite(beforeMinWorldY) || !Number.isFinite(afterMinWorldY)) {
+    throw new Error('Cannot anchor the figure: deformed bounds are invalid.');
+  }
+  const targetMinWorldY = Math.abs(beforeMinWorldY) < floorSnapTolerance ? 0 : beforeMinWorldY;
+  return Number((currentPositionY + (targetMinWorldY - afterMinWorldY)).toFixed(5));
+}
+
 export function setFigurePose(figure: Figure, pose: Pose): void {
   if (figure.deformation) {
     const effective = clampPoseToAnatomicalLimits(pose, figure.deformation.limitMode);
-    const key = JSON.stringify([figure.deformation, effective]);
+    const preRev = (figure.root.userData.__bodyProportionRevision as number) || 0;
+    const preKey = JSON.stringify([figure.deformation, effective, preRev]);
     const previous = semanticPoses.get(figure);
-    if (previous?.key !== key || JOINTS.some(j => !figure.bones[j].quaternion.equals(previous.rotations[j]))) {
+    if (previous?.key !== preKey || JOINTS.some(j => !figure.bones[j].quaternion.equals(previous.rotations[j]))) {
       const { root } = figure;
       const position = root.position.clone(), rotation = root.quaternion.clone(), scale = root.scale.clone();
       // Solve in character space: world reflections/nonuniform scales must not enter the rigid DQS solve.
@@ -143,8 +173,10 @@ export function setFigurePose(figure: Figure, pose: Pose): void {
         root.position.copy(position); root.quaternion.copy(rotation); root.scale.copy(scale);
         root.updateMatrixWorld(true);
       }
+      const postRev = (figure.root.userData.__bodyProportionRevision as number) || 0;
+      const postKey = JSON.stringify([figure.deformation, effective, postRev]);
       semanticPoses.set(figure, {
-        pose: effective, key,
+        pose: effective, key: postKey,
         rotations: Object.fromEntries(JOINTS.map(j => [j, figure.bones[j].quaternion.clone()])) as Record<Joint, T.Quaternion>,
       });
     }

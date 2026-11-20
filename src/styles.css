@@ -480,6 +480,10 @@ section:last-child {
   padding: 1px 6px;
   border-radius: 999px;
   flex-shrink: 0;
+  max-width: 48%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .select-chevron {
   display: inline-flex;

@@ -5,13 +5,14 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { getJointRotation, setFigurePose, type Figure } from './rig';
+import { computeAnchoredPositionY, getJointRotation, measureFigureMinWorldY, setFigurePose, type Figure } from './rig';
 import { makeExternalFigure, setFigureColors, setFigureHairStyle } from './external-rig';
-import { DEFAULT_BODY_TYPE } from './bodyProportions';
+import { DEFAULT_BODY_TYPE, type BodyTypeId } from './bodyProportions';
+import { clampPoseToAnatomicalLimits } from './skinDeformer';
 import { makeProp } from './props';
 import { pickJointMarker, sizeJointMarker } from './joint-markers';
 import { HELPER_LAYER, STAGE_LAYER, NprInkPass, StudioShadingController, needsInk, paperColor, setLayerRecursive } from './npr';
-import { clone, DEFAULT_HAIR_COLOR, DEFAULT_RENDER_STYLE, defaultOutfitColor, isBody, JOINTS, selectionCentroid, transformItems, validatePortable, type Item, type Joint, type Pose, type SceneState, type Vec3 } from './model';
+import { clone, DEFAULT_HAIR_COLOR, DEFAULT_RENDER_STYLE, defaultOutfitColor, isBody, JOINTS, selectionCentroid, transformItems, validatePortable, type Body, type Item, type Joint, type Pose, type SceneState, type Vec3 } from './model';
 
 interface Entry { kind: Item['kind']; root: T.Group; figure?: Figure; light?: T.SpotLight; target?: T.Object3D; markers?: T.Mesh<T.SphereGeometry, T.MeshBasicMaterial>[] }
 export interface EngineOptions {
@@ -423,8 +424,8 @@ export class Studio {
       entry.root.position.fromArray(item.position); entry.root.rotation.set(...item.rotation); entry.root.scale.fromArray(item.scale);
       if (entry.figure && item.pose && isBody(item.kind)) {
         entry.figure.deformation = { bodyType: item.bodyType ?? DEFAULT_BODY_TYPE, limitMode: item.anatomicalLimits === false ? 'free' : 'anatomical' };
-        setFigureHairStyle(entry.figure, item.kind, item.hairStyle, item.hairColor ?? DEFAULT_HAIR_COLOR);
         setFigurePose(entry.figure, item.pose);
+        setFigureHairStyle(entry.figure, item.kind, item.hairStyle, item.hairColor ?? DEFAULT_HAIR_COLOR);
         setFigureColors(
           entry.figure,
           item.color,
@@ -617,6 +618,12 @@ export class Studio {
       setFigurePose(entry.figure, stateItem.pose);
     }
   }
+  anchoredFigureY(
+    id: string,
+    next: { kind?: Body; bodyType?: BodyTypeId; anatomicalLimits?: boolean; pose?: Pose },
+  ): number | null {
+    return computeStudioAnchoredFigureY(this, id, next);
+  }
   previewFigurePose(id: string, pose: Pose, rootY?: number): void {
     const entry = this.entries.get(id);
     if (!entry?.figure) return;
@@ -754,6 +761,90 @@ export class Studio {
     disposeObject(this.scene, true); this.renderer.dispose(); this.renderer.domElement.remove();
   }
 }
+export function computeStudioAnchoredFigureY(
+  studio: Studio | null | undefined,
+  id: string,
+  next: { kind?: Body; bodyType?: BodyTypeId; anatomicalLimits?: boolean; pose?: Pose },
+): number | null {
+  if (!studio) return null;
+  const internals = studio as unknown as {
+    entries?: Map<string, Entry>;
+    state?: SceneState | null;
+  };
+  const entry = internals.entries?.get(id);
+  const stateItem = internals.state?.items.find(i => i.id === id);
+  if (!entry?.figure || !stateItem || !isBody(stateItem.kind) || !stateItem.pose) return null;
+  const prevPos = entry.root.position.clone();
+  const prevRot = entry.root.rotation.clone();
+  const prevScale = entry.root.scale.clone();
+  const prevDeformation = entry.figure.deformation ? { ...entry.figure.deformation } : undefined;
+  let tempFigure: Figure | null = null;
+  try {
+    entry.root.position.fromArray(stateItem.position);
+    entry.root.rotation.fromArray(stateItem.rotation);
+    entry.root.scale.fromArray(stateItem.scale);
+    entry.figure.deformation = {
+      bodyType: stateItem.bodyType ?? DEFAULT_BODY_TYPE,
+      limitMode: stateItem.anatomicalLimits === false ? 'free' : 'anatomical',
+    };
+    setFigurePose(entry.figure, stateItem.pose);
+    const beforeMinY = measureFigureMinWorldY(entry.figure);
+
+    const nextKind = next.kind ?? stateItem.kind;
+    const nextBodyType = next.bodyType ?? stateItem.bodyType ?? DEFAULT_BODY_TYPE;
+    const nextLimitMode = (next.anatomicalLimits ?? stateItem.anatomicalLimits) === false ? 'free' : 'anatomical';
+    const nextPose = clampPoseToAnatomicalLimits(next.pose ?? stateItem.pose, nextLimitMode);
+
+    let afterMinY: number;
+    if (nextKind === entry.kind) {
+      entry.figure.deformation = { bodyType: nextBodyType, limitMode: nextLimitMode };
+      setFigurePose(entry.figure, nextPose);
+      afterMinY = measureFigureMinWorldY(entry.figure);
+    } else {
+      tempFigure = makeExternalFigure(
+        nextKind,
+        stateItem.color,
+        stateItem.outfitColor ?? defaultOutfitColor(stateItem.kind),
+      );
+      tempFigure.root.position.fromArray(stateItem.position);
+      tempFigure.root.rotation.fromArray(stateItem.rotation);
+      tempFigure.root.scale.fromArray(stateItem.scale);
+      tempFigure.deformation = { bodyType: nextBodyType, limitMode: nextLimitMode };
+      setFigurePose(tempFigure, nextPose);
+      afterMinY = measureFigureMinWorldY(tempFigure);
+    }
+    return computeAnchoredPositionY(stateItem.position[1], beforeMinY, afterMinY);
+  } finally {
+    if (tempFigure) disposeObject(tempFigure.root);
+    entry.root.position.copy(prevPos);
+    entry.root.rotation.copy(prevRot);
+    entry.root.scale.copy(prevScale);
+    entry.figure.deformation = prevDeformation;
+    setFigurePose(entry.figure, stateItem.pose);
+  }
+}
+
+export function syncStudioScene(studio: Studio | null | undefined, state: SceneState): void {
+  if (!studio) return;
+  const internals = studio as unknown as {
+    entries?: Map<string, Entry>;
+    scene?: T.Scene;
+    transform?: TransformControls;
+  };
+  if (internals.entries && internals.scene) {
+    for (const [id, entry] of internals.entries) {
+      if (!state.items.some(i => i.id === id && i.kind === entry.kind)) {
+        internals.transform?.detach();
+        internals.scene.remove(entry.root);
+        if (entry.target) internals.scene.remove(entry.target);
+        disposeObject(entry.root);
+        internals.entries.delete(id);
+      }
+    }
+  }
+  studio.sync(state);
+}
+
 export function aspect(value: SceneState['camera']['aspect']): number { const [x, y] = value.split(':').map(Number); return x / y; }
 function disposeObject(root: T.Object3D, releaseTextures = false): void {
   const geometries = new Set<T.BufferGeometry>(), materials = new Set<T.Material>(), skeletons = new Set<T.Skeleton>();

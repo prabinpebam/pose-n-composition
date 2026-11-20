@@ -1,7 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import * as T from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   BUILTIN_ANIMATION_CYCLES,
@@ -16,37 +13,7 @@ import {
 import { buildExternalFigure } from './external-rig';
 import { JOINTS, validatePose } from './model';
 import { getJointRotation, setFigurePose, type Figure } from './rig';
-
-class PolyfillProgressEvent extends Event {
-  lengthComputable = false;
-  loaded = 0;
-  total = 0;
-  constructor(type: string, init: { lengthComputable?: boolean; loaded?: number; total?: number } = {}) {
-    super(type);
-    this.lengthComputable = Boolean(init.lengthComputable);
-    this.loaded = init.loaded ?? 0;
-    this.total = init.total ?? 0;
-  }
-}
-(globalThis as { ProgressEvent?: unknown }).ProgressEvent ??= PolyfillProgressEvent;
-
-const charModelDir = resolve(process.cwd(), 'public', 'models', 'external', 'quaternius-universal-base');
-
-async function loadCharacterTemplate(file: string): Promise<T.Group> {
-  const source = JSON.parse(readFileSync(resolve(charModelDir, file), 'utf8'));
-  source.buffers.forEach((b: { uri: string }) => {
-    b.uri = `data:application/octet-stream;base64,${readFileSync(resolve(charModelDir, b.uri)).toString('base64')}`;
-  });
-  delete source.images;
-  delete source.textures;
-  delete source.materials;
-  source.meshes.forEach((m: { primitives: Record<string, unknown>[] }) =>
-    m.primitives.forEach((p) => {
-      delete p.material;
-    }),
-  );
-  return (await new GLTFLoader().parseAsync(JSON.stringify(source), '')).scene;
-}
+import { loadMannequinTestFixtures } from './testMannequinFixtures';
 
 function limbWorldDir(figure: Figure, from: keyof Figure['bones'], to: keyof Figure['bones']): T.Vector3 {
   figure.root.updateMatrixWorld(true);
@@ -150,12 +117,9 @@ describe('animationPoseExtractor', () => {
   let femaleFigure: Figure;
 
   beforeAll(async () => {
-    const [maleTpl, femaleTpl] = await Promise.all([
-      loadCharacterTemplate('Superhero_Male_FullBody.gltf'),
-      loadCharacterTemplate('Superhero_Female_FullBody.gltf'),
-    ]);
-    maleFigure = buildExternalFigure('male', maleTpl, '#d4a574');
-    femaleFigure = buildExternalFigure('female', femaleTpl, '#d4a574');
+    const templates = await loadMannequinTestFixtures();
+    maleFigure = buildExternalFigure('male', templates.get('male')!, '#d4a574');
+    femaleFigure = buildExternalFigure('female', templates.get('female')!, '#d4a574');
   });
 
   it('normalizes Mixamo, Quaternius, Unity/VRM Humanoid, and Biped bone names accurately', () => {

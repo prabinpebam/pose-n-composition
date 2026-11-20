@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import * as T from 'three';
 import {
+  applyChibiDefaultRenderStyle,
   applyPose,
   clone,
   copyPoseNodes,
+  createDefaultScene,
   createItem,
   DEFAULT_FEMALE_OUTFIT_COLOR,
   DEFAULT_FEMALE_SKIN_COLOR,
@@ -22,6 +24,7 @@ import {
   PRESETS,
   preset,
   PROP_KINDS,
+  swapItemBodyKind,
   validatePoseFile,
   validatePortable,
   transformItems,
@@ -254,6 +257,57 @@ describe('portable scene and pose contracts', () => {
     expect(() => parsePoseFile(JSON.stringify(initialScene()))).toThrow('expected a pose JSON file');
     expect(() => validatePoseFile({ schemaVersion: 1, rigVersion: 1, type: 'pose', name: 'Bad', body: 'male', pose: {} })).toThrow('Invalid file');
     expect(female).toEqual(beforeFemale);
+  });
+  it('swaps base figure kind in-place while preserving identity, transform, pose, bodyType, colors, hair, and joint limits', () => {
+    const female = createItem('female', 1, 'busty');
+    female.position = [1.8, 0.48, -1.2];
+    female.rotation = [0.05, 1.1, -0.05];
+    female.scale = [-1, 1.05, 1];
+    female.pose = preset('Contrapposto');
+    female.anatomicalLimits = false;
+    // Simulate legacy item with implicit outfitColor/hairStyle before swap
+    delete female.outfitColor;
+    delete female.hairStyle;
+
+    const swapped = swapItemBodyKind(female, 'male', 0.465);
+    expect(swapped.id).toBe(female.id);
+    expect(swapped.kind).toBe('male');
+    expect(swapped.position).toEqual([1.8, 0.465, -1.2]);
+    expect(swapped.rotation).toEqual(female.rotation);
+    expect(swapped.scale).toEqual(female.scale);
+    expect(swapped.pose).toEqual(female.pose);
+    expect(swapped.bodyType).toBe('busty');
+    expect(swapped.color).toBe(DEFAULT_FEMALE_SKIN_COLOR);
+    expect(swapped.outfitColor).toBe(DEFAULT_FEMALE_OUTFIT_COLOR);
+    expect(swapped.hairStyle).toBe('long');
+    expect(swapped.hairColor).toBe(DEFAULT_HAIR_COLOR);
+    expect(swapped.anatomicalLimits).toBe(false);
+
+    const scene = initialScene();
+    scene.items[1] = swapped;
+    expect(() => validatePortable(scene)).not.toThrow();
+    expect(() => swapItemBodyKind(createItem('chair'), 'female')).toThrow('Only character figures');
+  });
+  it('creates a fresh default scene and switches realistic renderStyle to anime illustration when chibi is selected or added', () => {
+    const first = createDefaultScene();
+    const second = createDefaultScene();
+    expect(first.name).toBe('Untitled study');
+    expect(first.renderStyle?.mode).toBe('realistic');
+    expect(first.items.map(i => i.kind)).toEqual(['male', 'female', 'light']);
+    expect(first.items[0].id).not.toBe(second.items[0].id);
+
+    // Non-chibi body types leave realistic mode unchanged
+    applyChibiDefaultRenderStyle(first, 'heroic');
+    expect(first.renderStyle?.mode).toBe('realistic');
+
+    // Chibi promotes default realistic PBR mode to anime cel-shading ('illustration')
+    applyChibiDefaultRenderStyle(first, 'chibi');
+    expect(first.renderStyle?.mode).toBe('illustration');
+
+    // Intentional non-realistic modes (e.g., clay or outline) are preserved
+    first.renderStyle = { ...first.renderStyle!, mode: 'clay' };
+    applyChibiDefaultRenderStyle(first, 'chibi');
+    expect(first.renderStyle.mode).toBe('clay');
   });
 });
 describe('actual procedural rig and camera', () => {

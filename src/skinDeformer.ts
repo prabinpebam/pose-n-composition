@@ -1,7 +1,14 @@
 import * as T from 'three';
 import { JOINTS, type Body, type Joint, type Pose, type Vec3 } from './model';
 import type { Figure } from './rig';
-import { applyBodyProportion, isBodyTypeId, type BodyTypeId } from './bodyProportions';
+import {
+  applyBodyProportion,
+  getMannequinWeldTable,
+  hasBodyProportionBaseline,
+  isBodyTypeId,
+  registerProportionPreHook,
+  type BodyTypeId,
+} from './bodyProportions';
 
 export type PoseLimitMode = 'anatomical' | 'free';
 
@@ -44,8 +51,13 @@ export interface SkinDeformationDiagnostics {
   elapsedMs: number;
 }
 
-const SKIN_DEFORMER_STATE_KEY = '__skinDeformerState';
+const figureSkinStates = new WeakMap<T.Object3D, FigureSkinState>();
 const DEG = Math.PI / 180;
+
+registerProportionPreHook(figureRoot => {
+  const existing = figureSkinStates.get(figureRoot);
+  if (existing) restoreBindAttributesIfPassThrough(existing);
+});
 
 interface JointEulerBounds {
   min: Vec3;
@@ -155,6 +167,14 @@ interface TopologyTemplate {
     wCalfR: Float32Array;
     wFootChainR: Float32Array;
   };
+  bulgeCandidates: Int32Array;
+  creaseElbL: Int32Array;
+  creaseElbR: Int32Array;
+  creaseKneeL: Int32Array;
+  creaseKneeR: Int32Array;
+  creaseHipL: Int32Array;
+  creaseHipR: Int32Array;
+  distArmCandidates: Int32Array;
 }
 
 interface LimbSegRest {
@@ -212,6 +232,7 @@ interface FigureSkinState {
   ballRRestLocal: T.Quaternion;
   ballRRestBasis: T.Quaternion;
   lastProportionRevision: number;
+  lastDeltaMushIterations: number;
   activePassThrough: boolean;
   lastCoupledDiagnostics: CoupledRigDiagnostics;
 
@@ -333,41 +354,56 @@ function buildTopologyTemplate(gender: 'male' | 'female', mainSkin: T.SkinnedMes
   const cached = topologyCache.get(cacheKey);
   if (cached) return cached;
 
-  const vToWeld = new Int32Array(splitCount);
-  const weldFirstList: number[] = [];
-  const posMap = new Map<string, number>();
+  const preparsedWeld = getMannequinWeldTable(gender, mainSkin.name || 'Body', splitCount);
+  let vToWeld: Int32Array;
+  let weldToFirstV: Int32Array;
+  let weldCount: number;
+  let normWeldCanon: Int32Array;
+  let normWeldGroupCount: number;
 
-  const normWeldCanon = new Int32Array(splitCount);
-  const normMap = new Map<string, number>();
-  let normWeldGroupCount = 0;
+  if (preparsedWeld) {
+    vToWeld = preparsedWeld.vToWeld;
+    weldToFirstV = preparsedWeld.weldToFirstV;
+    weldCount = preparsedWeld.weldCount;
+    normWeldCanon = vToWeld;
+    normWeldGroupCount = weldCount;
+  } else {
+    vToWeld = new Int32Array(splitCount);
+    const weldFirstList: number[] = [];
+    const posMap = new Map<string, number>();
 
-  for (let i = 0; i < splitCount; i++) {
-    const px = posAttr.getX(i);
-    const py = posAttr.getY(i);
-    const pz = posAttr.getZ(i);
-    const pKey = `${Math.round(px * 1e5)},${Math.round(py * 1e5)},${Math.round(pz * 1e5)}`;
-    let wIdx = posMap.get(pKey);
-    if (wIdx === undefined) {
-      wIdx = weldFirstList.length;
-      weldFirstList.push(i);
-      posMap.set(pKey, wIdx);
+    normWeldCanon = new Int32Array(splitCount);
+    const normMap = new Map<string, number>();
+    normWeldGroupCount = 0;
+
+    for (let i = 0; i < splitCount; i++) {
+      const px = posAttr.getX(i);
+      const py = posAttr.getY(i);
+      const pz = posAttr.getZ(i);
+      const pKey = `${Math.round(px * 1e5)},${Math.round(py * 1e5)},${Math.round(pz * 1e5)}`;
+      let wIdx = posMap.get(pKey);
+      if (wIdx === undefined) {
+        wIdx = weldFirstList.length;
+        weldFirstList.push(i);
+        posMap.set(pKey, wIdx);
+      }
+      vToWeld[i] = wIdx;
+
+      const nx = normAttr.getX(i);
+      const ny = normAttr.getY(i);
+      const nz = normAttr.getZ(i);
+      const nKey = `${pKey}|${Math.round(nx * 2e3)},${Math.round(ny * 2e3)},${Math.round(nz * 2e3)}`;
+      let nGroup = normMap.get(nKey);
+      if (nGroup === undefined) {
+        nGroup = normWeldGroupCount++;
+        normMap.set(nKey, nGroup);
+      }
+      normWeldCanon[i] = nGroup;
     }
-    vToWeld[i] = wIdx;
 
-    const nx = normAttr.getX(i);
-    const ny = normAttr.getY(i);
-    const nz = normAttr.getZ(i);
-    const nKey = `${pKey}|${Math.round(nx * 2e3)},${Math.round(ny * 2e3)},${Math.round(nz * 2e3)}`;
-    let nGroup = normMap.get(nKey);
-    if (nGroup === undefined) {
-      nGroup = normWeldGroupCount++;
-      normMap.set(nKey, nGroup);
-    }
-    normWeldCanon[i] = nGroup;
+    weldCount = weldFirstList.length;
+    weldToFirstV = Int32Array.from(weldFirstList);
   }
-
-  const weldCount = weldFirstList.length;
-  const weldToFirstV = Int32Array.from(weldFirstList);
 
   const triIndices = new Int32Array(triVertCount);
   if (indexAttr) {
@@ -376,29 +412,56 @@ function buildTopologyTemplate(gender: 'male' | 'female', mainSkin: T.SkinnedMes
     for (let i = 0; i < triVertCount; i++) triIndices[i] = i;
   }
 
-  // Build welded CSR 1-ring graph
-  const adjSets: Array<Set<number>> = Array.from({ length: weldCount }, () => new Set<number>());
+  // Fast flat two-pass welded CSR 1-ring graph (avoids 53k Set allocations)
+  const maxDegreeCap = new Int32Array(weldCount);
   for (let i = 0; i + 2 < triVertCount; i += 3) {
     const wa = vToWeld[triIndices[i]!]!;
     const wb = vToWeld[triIndices[i + 1]!]!;
     const wc = vToWeld[triIndices[i + 2]!]!;
-    if (wa !== wb) { adjSets[wa]!.add(wb); adjSets[wb]!.add(wa); }
-    if (wb !== wc) { adjSets[wb]!.add(wc); adjSets[wc]!.add(wb); }
-    if (wc !== wa) { adjSets[wc]!.add(wa); adjSets[wa]!.add(wc); }
+    if (wa !== wb) { maxDegreeCap[wa]!++; maxDegreeCap[wb]!++; }
+    if (wb !== wc) { maxDegreeCap[wb]!++; maxDegreeCap[wc]!++; }
+    if (wc !== wa) { maxDegreeCap[wc]!++; maxDegreeCap[wa]!++; }
   }
-
+  const tmpOffsets = new Int32Array(weldCount + 1);
+  let capTotal = 0;
+  for (let w = 0; w < weldCount; w++) {
+    tmpOffsets[w] = capTotal;
+    capTotal += maxDegreeCap[w]!;
+  }
+  tmpOffsets[weldCount] = capTotal;
+  const tmpCols = new Int32Array(capTotal);
+  const rowCounts = new Int32Array(weldCount);
+  const addDirectedUnique = (u: number, v: number) => {
+    const base = tmpOffsets[u]!;
+    const len = rowCounts[u]!;
+    for (let k = 0; k < len; k++) {
+      if (tmpCols[base + k] === v) return;
+    }
+    tmpCols[base + len] = v;
+    rowCounts[u] = len + 1;
+  };
+  for (let i = 0; i + 2 < triVertCount; i += 3) {
+    const wa = vToWeld[triIndices[i]!]!;
+    const wb = vToWeld[triIndices[i + 1]!]!;
+    const wc = vToWeld[triIndices[i + 2]!]!;
+    if (wa !== wb) { addDirectedUnique(wa, wb); addDirectedUnique(wb, wa); }
+    if (wb !== wc) { addDirectedUnique(wb, wc); addDirectedUnique(wc, wb); }
+    if (wc !== wa) { addDirectedUnique(wc, wa); addDirectedUnique(wa, wc); }
+  }
   const csrRowOffsets = new Int32Array(weldCount + 1);
   let totalEdges = 0;
   for (let w = 0; w < weldCount; w++) {
     csrRowOffsets[w] = totalEdges;
-    totalEdges += adjSets[w]!.size;
+    totalEdges += rowCounts[w]!;
   }
   csrRowOffsets[weldCount] = totalEdges;
   const csrColIndices = new Int32Array(totalEdges);
-  let cursor = 0;
   for (let w = 0; w < weldCount; w++) {
-    for (const nb of adjSets[w]!) {
-      csrColIndices[cursor++] = nb;
+    const srcStart = tmpOffsets[w]!;
+    const dstStart = csrRowOffsets[w]!;
+    const len = rowCounts[w]!;
+    for (let k = 0; k < len; k++) {
+      csrColIndices[dstStart + k] = tmpCols[srcStart + k]!;
     }
   }
 
@@ -413,6 +476,7 @@ function buildTopologyTemplate(gender: 'male' | 'female', mainSkin: T.SkinnedMes
   });
 
   const req = (name: string): number => byName.get(name) ?? 0;
+  const opt = (name: string): number => byName.get(name) ?? -1;
   const boneLookup: BoneLookup = {
     pelvis: req('pelvis'),
     spine01: req('spine_01'),
@@ -432,12 +496,12 @@ function buildTopologyTemplate(gender: 'male' | 'female', mainSkin: T.SkinnedMes
     calfL: req('calf_l'),
     footL: req('foot_l'),
     ballL: req('ball_l'),
-    ballLeafL: req('ball_leaf_l'),
+    ballLeafL: opt('ball_leaf_l'),
     thighR: req('thigh_r'),
     calfR: req('calf_r'),
     footR: req('foot_r'),
     ballR: req('ball_r'),
-    ballLeafR: req('ball_leaf_r'),
+    ballLeafR: opt('ball_leaf_r'),
   };
 
   const boneToTwistSeg = new Int8Array(boneCount).fill(SEG_NONE);
@@ -632,6 +696,41 @@ function buildTopologyTemplate(gender: 'male' | 'female', mainSkin: T.SkinnedMes
     refNeighbor2[w] = secondNb === w ? bestNb : secondNb;
   }
 
+  // Pre-index Layer 3 anatomical candidate subsets so 53.5k-vertex meshes only touch active limb/joint regions
+  const bulgeList: number[] = [];
+  const elbLList: number[] = [];
+  const elbRList: number[] = [];
+  const kneeLList: number[] = [];
+  const kneeRList: number[] = [];
+  const hipLList: number[] = [];
+  const hipRList: number[] = [];
+  const distArmList: number[] = [];
+
+  for (let w = 0; w < weldCount; w++) {
+    const wUL = wUpperArmL[w]!, wLL = wLowerArmL[w]!;
+    const wUR = wUpperArmR[w]!, wLR = wLowerArmR[w]!;
+    const wTL = wThighL[w]!, wCL = wCalfL[w]!;
+    const wTR = wThighR[w]!, wCR = wCalfR[w]!;
+    const wPel = wPelvis[w]!, wTorso = wTorsoCore[w]!;
+
+    if (
+      wUL > 0.20 || wLL > 0.20 ||
+      wUR > 0.20 || wLR > 0.20 ||
+      wTL > 0.20 || wCL > 0.20 ||
+      wTR > 0.20 || wCR > 0.20 ||
+      wPel + wTL + wTR > 0.45
+    ) {
+      bulgeList.push(w);
+    }
+    if (wUL + wLL >= 0.30) elbLList.push(w);
+    if (wUR + wLR >= 0.30) elbRList.push(w);
+    if (wTL + wCL >= 0.30) kneeLList.push(w);
+    if (wTR + wCR >= 0.30) kneeRList.push(w);
+    if (wTorso + wTL >= 0.30) hipLList.push(w);
+    if (wTorso + wTR >= 0.30) hipRList.push(w);
+    if (wLL + wHandChainL[w]! + wLR + wHandChainR[w]! >= 0.35) distArmList.push(w);
+  }
+
   const tpl: TopologyTemplate = {
     splitCount,
     weldCount,
@@ -669,6 +768,14 @@ function buildTopologyTemplate(gender: 'male' | 'female', mainSkin: T.SkinnedMes
       wCalfR,
       wFootChainR,
     },
+    bulgeCandidates: Int32Array.from(bulgeList),
+    creaseElbL: Int32Array.from(elbLList),
+    creaseElbR: Int32Array.from(elbRList),
+    creaseKneeL: Int32Array.from(kneeLList),
+    creaseKneeR: Int32Array.from(kneeRList),
+    creaseHipL: Int32Array.from(hipLList),
+    creaseHipR: Int32Array.from(hipRList),
+    distArmCandidates: Int32Array.from(distArmList),
   };
   topologyCache.set(cacheKey, tpl);
   return tpl;
@@ -679,13 +786,35 @@ function detectFigureGender(figure: Figure, explicit?: Body): Body {
   if (figure.body === 'male' || figure.body === 'female') return figure.body;
   const udGender = figure.root.userData?.gender;
   if (udGender === 'male' || udGender === 'female') return udGender;
+  let foundGender: Body | null = null;
+  let mainSkin: T.SkinnedMesh | null = null;
   let mainCount = 0;
   figure.root.traverse(node => {
+    const g = node.userData?.gender ?? node.userData?.pncGender;
+    if (g === 'male' || g === 'female') foundGender = g;
+    if (!foundGender && /female/i.test(node.name)) foundGender = 'female';
+    else if (!foundGender && /\bmale\b/i.test(node.name)) foundGender = 'male';
     if (node instanceof T.SkinnedMesh) {
       const c = node.geometry.getAttribute('position').count;
-      if (c > mainCount) mainCount = c;
+      if (c > mainCount) {
+        mainCount = c;
+        mainSkin = node;
+      }
     }
   });
+  if (foundGender) return foundGender;
+  if (mainSkin && mainCount > 20_000) {
+    // Mannequin_Male native rest stature is 1.80 m vs Mannequin_Female 1.75 m
+    const pos = (mainSkin as T.SkinnedMesh).geometry.getAttribute('position');
+    let maxY = -Infinity;
+    let minY = Infinity;
+    for (let i = 0; i < pos.count; i += 8) {
+      const y = pos.getY(i);
+      if (y > maxY) maxY = y;
+      if (y < minY) minY = y;
+    }
+    return maxY - minY >= 1.775 ? 'male' : 'female';
+  }
   return mainCount >= 7330 ? 'female' : 'male';
 }
 
@@ -1115,20 +1244,27 @@ function restoreBindAttributesIfPassThrough(state: FigureSkinState): void {
   state.activePassThrough = false;
 }
 
+function resolveDeltaMushIterations(weldCount: number, explicit?: number): number {
+  if (explicit !== undefined) return explicit;
+  // Subdivided Catmull-Clark meshes (>25k welded verts) already have small smooth triangles, so 2 Jacobi passes match 6 passes on coarse cages at 3x speed
+  return weldCount > 25_000 ? 2 : 6;
+}
+
 function ensureFigureSkinState(figure: Figure, options?: SkinDeformerOptions): FigureSkinState {
-  const existing = figure.root.userData[SKIN_DEFORMER_STATE_KEY] as FigureSkinState | undefined;
+  const existing = figureSkinStates.get(figure.root);
   const gender = detectFigureGender(figure, options?.gender);
   const desiredBodyType = options?.bodyType;
-  const dmIters = options?.deltaMushIterations ?? 6;
 
   if (existing) {
+    const dmIters = resolveDeltaMushIterations(existing.topology.weldCount, options?.deltaMushIterations);
     if (desiredBodyType && isBodyTypeId(desiredBodyType) && figure.root.userData.bodyType !== desiredBodyType) {
       restoreBindAttributesIfPassThrough(existing);
       applyBodyProportion(figure.root, gender, desiredBodyType);
     }
     const rev = (figure.root.userData.__bodyProportionRevision as number) || 0;
-    if (rev !== existing.lastProportionRevision) {
+    if (rev !== existing.lastProportionRevision || dmIters !== existing.lastDeltaMushIterations) {
       existing.lastProportionRevision = rev;
+      existing.lastDeltaMushIterations = dmIters;
       refreshMorphedBindSnapshot(existing, dmIters);
     }
     return existing;
@@ -1153,7 +1289,7 @@ function ensureFigureSkinState(figure: Figure, options?: SkinDeformerOptions): F
   figure.root.scale.set(1, 1, 1);
   figure.root.updateMatrixWorld(true);
 
-  if (!figure.root.userData.__bodyProportionBaseline) {
+  if (!hasBodyProportionBaseline(figure.root)) {
     const initBodyType =
       desiredBodyType && isBodyTypeId(desiredBodyType)
         ? desiredBodyType
@@ -1184,6 +1320,7 @@ function ensureFigureSkinState(figure: Figure, options?: SkinDeformerOptions): F
 
   const topology = buildTopologyTemplate(gender, mainSkin);
   const { splitCount, weldCount, boneCount, normWeldGroupCount } = topology;
+  const dmIters = resolveDeltaMushIterations(weldCount, options?.deltaMushIterations);
 
   const state: FigureSkinState = {
     gender,
@@ -1203,6 +1340,7 @@ function ensureFigureSkinState(figure: Figure, options?: SkinDeformerOptions): F
     ballRRestLocal,
     ballRRestBasis,
     lastProportionRevision: (figure.root.userData.__bodyProportionRevision as number) || 0,
+    lastDeltaMushIterations: dmIters,
     activePassThrough: false,
     lastCoupledDiagnostics: {
       clampedJointCount: 0,
@@ -1256,7 +1394,7 @@ function ensureFigureSkinState(figure: Figure, options?: SkinDeformerOptions): F
   figure.root.scale.copy(savedRootScale);
   figure.root.updateMatrixWorld(true);
 
-  figure.root.userData[SKIN_DEFORMER_STATE_KEY] = state;
+  figureSkinStates.set(figure.root, state);
   return state;
 }
 
@@ -1419,9 +1557,8 @@ export function solveCoupledRigPose(
       figure.bones.hips.getWorldPosition(_vecA);
       lower.getWorldPosition(_vecB);
       hand.getWorldPosition(_vecC);
-      const rootScale = figure.root.scale.x || 1;
-      const latElbow = outSign * (_vecB.x - _vecA.x) / rootScale;
-      const latWrist = outSign * (_vecC.x - _vecA.x) / rootScale;
+      const latElbow = outSign * _vecB.sub(_vecA).dot(_spineAxisX);
+      const latWrist = outSign * _vecC.sub(_vecA).dot(_spineAxisX);
       const minClearance = Math.max(state.envelope.waistRx, state.envelope.pelvisRx) + state.envelope.forearmR * 0.85;
       const pen = Math.max(0, minClearance - Math.min(latElbow, latWrist));
       if (pen > 0.002) {
@@ -1537,7 +1674,7 @@ function computeFlexionAngle(
 
 function applyHingeCreaseContact(
   weldedPos: Float32Array,
-  weldCount: number,
+  candidates: Int32Array,
   wParentArr: Float32Array,
   wChildArr: Float32Array,
   sideFilter: -1 | 0 | 1,
@@ -1584,7 +1721,8 @@ function applyHingeCreaseContact(
   const maxLat = limbRadius * 2.45;
   let maxCorr = 0;
 
-  for (let w = 0; w < weldCount; w++) {
+  for (let cIdx = 0; cIdx < candidates.length; cIdx++) {
+    const w = candidates[cIdx]!;
     const wp = wParentArr[w]!;
     const wc = wChildArr[w]!;
     const wTot = wp + wc;
@@ -1754,11 +1892,15 @@ export function evaluateSkinDeformation(
   const state = ensureFigureSkinState(figure, options);
   figure.root.updateMatrixWorld(true);
 
+  const activeBt =
+    options?.bodyType ??
+    figure.deformation?.bodyType ??
+    (isBodyTypeId(figure.root.userData?.bodyType) ? figure.root.userData.bodyType : undefined);
   const enableTwist = options?.enableTwistDistribution ?? true;
   const enableDqs = options?.enableHybridDqs ?? true;
   const enableDeltaMush = options?.enableDeltaMush ?? true;
-  const enableContact = options?.enableContactAndBulge ?? true;
-  const dmIters = options?.deltaMushIterations ?? 6;
+  const enableContact = options?.enableContactAndBulge ?? activeBt !== 'chibi';
+  const dmIters = resolveDeltaMushIterations(state.topology.weldCount, options?.deltaMushIterations);
 
   const { mainSkin, topology: tpl } = state;
   const {
@@ -1874,6 +2016,40 @@ export function evaluateSkinDeformation(
     const px0 = restWeldedPos[w3]!;
     const py0 = restWeldedPos[w3 + 1]!;
     const pz0 = restWeldedPos[w3 + 2]!;
+
+    // Single-bone rigid fast path (w0 > 0.999 -> DQS === LBS === single rigid matrix multiply)
+    const w0 = skinWgt4[w4]!;
+    if (w0 > 0.999) {
+      const b0 = skinIdx4[w4]!;
+      const seg0 = boneToTwistSeg[b0]!;
+      let vx0 = px0, vy0 = py0, vz0 = pz0;
+      if (enableTwist && seg0 !== SEG_NONE) {
+        const phiProx0 = segProxTwist[seg0]!;
+        const phiDist0 = segDistTwist[seg0]!;
+        if (Math.abs(phiProx0) > 1e-5 || Math.abs(phiDist0) > 1e-5) {
+          const seg = state.limbSegs[seg0]!;
+          const u = smoothstep(seg.sStart, seg.sEnd, weldedWeightAxialS[w4]!);
+          const theta = -(1 - u) * phiProx0 + u * phiDist0;
+          if (Math.abs(theta) > 1e-6) {
+            const half = 0.5 * theta;
+            const sh = Math.sin(half), ch = Math.cos(half);
+            const tqx = seg.ax * sh, tqy = seg.ay * sh, tqz = seg.az * sh;
+            const rx = px0 - seg.p0x, ry = py0 - seg.p0y, rz = pz0 - seg.p0z;
+            const cx1 = tqy * rz - tqz * ry + ch * rx;
+            const cy1 = tqz * rx - tqx * rz + ch * ry;
+            const cz1 = tqx * ry - tqy * rx + ch * rz;
+            vx0 = seg.p0x + rx + 2 * (tqy * cz1 - tqz * cy1);
+            vy0 = seg.p0y + ry + 2 * (tqz * cx1 - tqx * cz1);
+            vz0 = seg.p0z + rz + 2 * (tqx * cy1 - tqy * cx1);
+          }
+        }
+      }
+      const mOff0 = b0 * 16;
+      skinnedPos[w3] = boneSkinMat[mOff0]! * vx0 + boneSkinMat[mOff0 + 4]! * vy0 + boneSkinMat[mOff0 + 8]! * vz0 + boneSkinMat[mOff0 + 12]!;
+      skinnedPos[w3 + 1] = boneSkinMat[mOff0 + 1]! * vx0 + boneSkinMat[mOff0 + 5]! * vy0 + boneSkinMat[mOff0 + 9]! * vz0 + boneSkinMat[mOff0 + 13]!;
+      skinnedPos[w3 + 2] = boneSkinMat[mOff0 + 2]! * vx0 + boneSkinMat[mOff0 + 6]! * vy0 + boneSkinMat[mOff0 + 10]! * vz0 + boneSkinMat[mOff0 + 14]!;
+      continue;
+    }
 
     let lbsX = 0, lbsY = 0, lbsZ = 0;
     let dqsQx = 0, dqsQy = 0, dqsQz = 0, dqsQw = 0;
@@ -2108,8 +2284,10 @@ export function evaluateSkinDeformation(
       const segTR = state.limbSegs[SEG_THIGH_R]!;
       const pPelvisBindY = state.bindBonePos[bl.pelvis * 3 + 1]!;
       const pPelvisBindZ = state.bindBonePos[bl.pelvis * 3 + 2]!;
+      const { bulgeCandidates } = tpl;
 
-      for (let w = 0; w < weldCount; w++) {
+      for (let bIdx = 0; bIdx < bulgeCandidates.length; bIdx++) {
+        const w = bulgeCandidates[bIdx]!;
         const w3 = w * 3;
         const rx0 = restWeldedPos[w3]!;
         const ry0 = restWeldedPos[w3 + 1]!;
@@ -2266,7 +2444,7 @@ export function evaluateSkinDeformation(
     maxCreaseCorrectionM = Math.max(
       maxCreaseCorrectionM,
       applyHingeCreaseContact(
-        weldedPos, weldCount, wm.wUpperArmL, wm.wLowerArmL, 0, restWeldedPos,
+        weldedPos, tpl.creaseElbL, wm.wUpperArmL, wm.wLowerArmL, 0, restWeldedPos,
         posedBonePos[bl.lowerarmL * 3]!, posedBonePos[bl.lowerarmL * 3 + 1]!, posedBonePos[bl.lowerarmL * 3 + 2]!,
         posedBonePos[bl.upperarmL * 3]! - posedBonePos[bl.lowerarmL * 3]!,
         posedBonePos[bl.upperarmL * 3 + 1]! - posedBonePos[bl.lowerarmL * 3 + 1]!,
@@ -2282,7 +2460,7 @@ export function evaluateSkinDeformation(
     maxCreaseCorrectionM = Math.max(
       maxCreaseCorrectionM,
       applyHingeCreaseContact(
-        weldedPos, weldCount, wm.wUpperArmR, wm.wLowerArmR, 0, restWeldedPos,
+        weldedPos, tpl.creaseElbR, wm.wUpperArmR, wm.wLowerArmR, 0, restWeldedPos,
         posedBonePos[bl.lowerarmR * 3]!, posedBonePos[bl.lowerarmR * 3 + 1]!, posedBonePos[bl.lowerarmR * 3 + 2]!,
         posedBonePos[bl.upperarmR * 3]! - posedBonePos[bl.lowerarmR * 3]!,
         posedBonePos[bl.upperarmR * 3 + 1]! - posedBonePos[bl.lowerarmR * 3 + 1]!,
@@ -2298,7 +2476,7 @@ export function evaluateSkinDeformation(
     maxCreaseCorrectionM = Math.max(
       maxCreaseCorrectionM,
       applyHingeCreaseContact(
-        weldedPos, weldCount, wm.wThighL, wm.wCalfL, 0, restWeldedPos,
+        weldedPos, tpl.creaseKneeL, wm.wThighL, wm.wCalfL, 0, restWeldedPos,
         posedBonePos[bl.calfL * 3]!, posedBonePos[bl.calfL * 3 + 1]!, posedBonePos[bl.calfL * 3 + 2]!,
         posedBonePos[bl.thighL * 3]! - posedBonePos[bl.calfL * 3]!,
         posedBonePos[bl.thighL * 3 + 1]! - posedBonePos[bl.calfL * 3 + 1]!,
@@ -2314,7 +2492,7 @@ export function evaluateSkinDeformation(
     maxCreaseCorrectionM = Math.max(
       maxCreaseCorrectionM,
       applyHingeCreaseContact(
-        weldedPos, weldCount, wm.wThighR, wm.wCalfR, 0, restWeldedPos,
+        weldedPos, tpl.creaseKneeR, wm.wThighR, wm.wCalfR, 0, restWeldedPos,
         posedBonePos[bl.calfR * 3]!, posedBonePos[bl.calfR * 3 + 1]!, posedBonePos[bl.calfR * 3 + 2]!,
         posedBonePos[bl.thighR * 3]! - posedBonePos[bl.calfR * 3]!,
         posedBonePos[bl.thighR * 3 + 1]! - posedBonePos[bl.calfR * 3 + 1]!,
@@ -2331,7 +2509,7 @@ export function evaluateSkinDeformation(
       maxCreaseCorrectionM = Math.max(
         maxCreaseCorrectionM,
         applyHingeCreaseContact(
-          weldedPos, weldCount, wm.wTorsoCore, wm.wThighL, 1, restWeldedPos,
+          weldedPos, tpl.creaseHipL, wm.wTorsoCore, wm.wThighL, 1, restWeldedPos,
           posedBonePos[bl.thighL * 3]!, posedBonePos[bl.thighL * 3 + 1]!, posedBonePos[bl.thighL * 3 + 2]!,
           torsoUpX, torsoUpY, torsoUpZ,
           posedBonePos[bl.calfL * 3]! - posedBonePos[bl.thighL * 3]!,
@@ -2346,7 +2524,7 @@ export function evaluateSkinDeformation(
       maxCreaseCorrectionM = Math.max(
         maxCreaseCorrectionM,
         applyHingeCreaseContact(
-          weldedPos, weldCount, wm.wTorsoCore, wm.wThighR, -1, restWeldedPos,
+          weldedPos, tpl.creaseHipR, wm.wTorsoCore, wm.wThighR, -1, restWeldedPos,
           posedBonePos[bl.thighR * 3]!, posedBonePos[bl.thighR * 3 + 1]!, posedBonePos[bl.thighR * 3 + 2]!,
           torsoUpX, torsoUpY, torsoUpZ,
           posedBonePos[bl.calfR * 3]! - posedBonePos[bl.thighR * 3]!,
@@ -2393,8 +2571,10 @@ export function evaluateSkinDeformation(
 
     const pelvisCapR = Math.min(env.pelvisRx, env.pelvisRz) * 0.94;
     const chestCapR = Math.min(env.chestRx, env.chestRz) * 0.94;
+    const { distArmCandidates } = tpl;
 
-    for (let w = 0; w < weldCount; w++) {
+    for (let dIdx = 0; dIdx < distArmCandidates.length; dIdx++) {
+      const w = distArmCandidates[dIdx]!;
       const wDistArmL = wm.wLowerArmL[w]! + wm.wHandChainL[w]!;
       const wDistArmR = wm.wLowerArmR[w]! + wm.wHandChainR[w]!;
       const wDistArm = wDistArmL + wDistArmR;
@@ -2514,59 +2694,74 @@ export function evaluateSkinDeformation(
     if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
   }
 
-  for (let v = 0; v < splitCount; v++) {
-    const w3 = vToWeld[v]! * 3;
-    const v3 = v * 3;
-    outPos[v3] = weldedPos[w3]!;
-    outPos[v3 + 1] = weldedPos[w3 + 1]!;
-    outPos[v3 + 2] = weldedPos[w3 + 2]!;
-  }
-
-  // Seam-welded area-weighted smooth normals
-  const { normGroupAccum } = state;
-  normGroupAccum.fill(0);
-  const triCount = triIndices.length;
-  for (let i = 0; i + 2 < triCount; i += 3) {
-    const ia = triIndices[i]!, ib = triIndices[i + 1]!, ic = triIndices[i + 2]!;
-    const ax = outPos[ia * 3]!, ay = outPos[ia * 3 + 1]!, az = outPos[ia * 3 + 2]!;
-    const bx = outPos[ib * 3]!, by = outPos[ib * 3 + 1]!, bz = outPos[ib * 3 + 2]!;
-    const cx = outPos[ic * 3]!, cy = outPos[ic * 3 + 1]!, cz = outPos[ic * 3 + 2]!;
-    const e1x = bx - ax, e1y = by - ay, e1z = bz - az;
-    const e2x = cx - ax, e2y = cy - ay, e2z = cz - az;
-    const fnx = e1y * e2z - e1z * e2y;
-    const fny = e1z * e2x - e1x * e2z;
-    const fnz = e1x * e2y - e1y * e2x;
-
-    const ga = normWeldCanon[ia]! * 3;
-    const gb = normWeldCanon[ib]! * 3;
-    const gc = normWeldCanon[ic]! * 3;
-    normGroupAccum[ga]! += fnx; normGroupAccum[ga + 1]! += fny; normGroupAccum[ga + 2]! += fnz;
-    normGroupAccum[gb]! += fnx; normGroupAccum[gb + 1]! += fny; normGroupAccum[gb + 2]! += fnz;
-    normGroupAccum[gc]! += fnx; normGroupAccum[gc + 1]! += fny; normGroupAccum[gc + 2]! += fnz;
-  }
-
-  for (let g = 0; g < normWeldGroupCount; g++) {
-    const g3 = g * 3;
-    const nx = normGroupAccum[g3]!, ny = normGroupAccum[g3 + 1]!, nz = normGroupAccum[g3 + 2]!;
-    const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
-    if (len > 1e-12) {
-      const inv = 1 / len;
-      normGroupAccum[g3] = nx * inv;
-      normGroupAccum[g3 + 1] = ny * inv;
-      normGroupAccum[g3 + 2] = nz * inv;
-    } else {
-      normGroupAccum[g3] = 0;
-      normGroupAccum[g3 + 1] = 1;
-      normGroupAccum[g3 + 2] = 0;
+  if (normWeldCanon === vToWeld) {
+    computeWeldedNormalsAndTangents(triIndices, vToWeld, weldedPos, weldCount, state.smoothWeldNorm);
+    const { smoothWeldNorm } = state;
+    for (let v = 0; v < splitCount; v++) {
+      const w3 = vToWeld[v]! * 3;
+      const v3 = v * 3;
+      outPos[v3] = weldedPos[w3]!;
+      outPos[v3 + 1] = weldedPos[w3 + 1]!;
+      outPos[v3 + 2] = weldedPos[w3 + 2]!;
+      outNorm[v3] = smoothWeldNorm[w3]!;
+      outNorm[v3 + 1] = smoothWeldNorm[w3 + 1]!;
+      outNorm[v3 + 2] = smoothWeldNorm[w3 + 2]!;
     }
-  }
+  } else {
+    for (let v = 0; v < splitCount; v++) {
+      const w3 = vToWeld[v]! * 3;
+      const v3 = v * 3;
+      outPos[v3] = weldedPos[w3]!;
+      outPos[v3 + 1] = weldedPos[w3 + 1]!;
+      outPos[v3 + 2] = weldedPos[w3 + 2]!;
+    }
 
-  for (let v = 0; v < splitCount; v++) {
-    const g3 = normWeldCanon[v]! * 3;
-    const v3 = v * 3;
-    outNorm[v3] = normGroupAccum[g3]!;
-    outNorm[v3 + 1] = normGroupAccum[g3 + 1]!;
-    outNorm[v3 + 2] = normGroupAccum[g3 + 2]!;
+    // Seam-welded area-weighted smooth normals
+    const { normGroupAccum } = state;
+    normGroupAccum.fill(0);
+    const triCount = triIndices.length;
+    for (let i = 0; i + 2 < triCount; i += 3) {
+      const ia = triIndices[i]!, ib = triIndices[i + 1]!, ic = triIndices[i + 2]!;
+      const ax = outPos[ia * 3]!, ay = outPos[ia * 3 + 1]!, az = outPos[ia * 3 + 2]!;
+      const bx = outPos[ib * 3]!, by = outPos[ib * 3 + 1]!, bz = outPos[ib * 3 + 2]!;
+      const cx = outPos[ic * 3]!, cy = outPos[ic * 3 + 1]!, cz = outPos[ic * 3 + 2]!;
+      const e1x = bx - ax, e1y = by - ay, e1z = bz - az;
+      const e2x = cx - ax, e2y = cy - ay, e2z = cz - az;
+      const fnx = e1y * e2z - e1z * e2y;
+      const fny = e1z * e2x - e1x * e2z;
+      const fnz = e1x * e2y - e1y * e2x;
+
+      const ga = normWeldCanon[ia]! * 3;
+      const gb = normWeldCanon[ib]! * 3;
+      const gc = normWeldCanon[ic]! * 3;
+      normGroupAccum[ga]! += fnx; normGroupAccum[ga + 1]! += fny; normGroupAccum[ga + 2]! += fnz;
+      normGroupAccum[gb]! += fnx; normGroupAccum[gb + 1]! += fny; normGroupAccum[gb + 2]! += fnz;
+      normGroupAccum[gc]! += fnx; normGroupAccum[gc + 1]! += fny; normGroupAccum[gc + 2]! += fnz;
+    }
+
+    for (let g = 0; g < normWeldGroupCount; g++) {
+      const g3 = g * 3;
+      const nx = normGroupAccum[g3]!, ny = normGroupAccum[g3 + 1]!, nz = normGroupAccum[g3 + 2]!;
+      const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      if (len > 1e-12) {
+        const inv = 1 / len;
+        normGroupAccum[g3] = nx * inv;
+        normGroupAccum[g3 + 1] = ny * inv;
+        normGroupAccum[g3 + 2] = nz * inv;
+      } else {
+        normGroupAccum[g3] = 0;
+        normGroupAccum[g3 + 1] = 1;
+        normGroupAccum[g3 + 2] = 0;
+      }
+    }
+
+    for (let v = 0; v < splitCount; v++) {
+      const g3 = normWeldCanon[v]! * 3;
+      const v3 = v * 3;
+      outNorm[v3] = normGroupAccum[g3]!;
+      outNorm[v3 + 1] = normGroupAccum[g3 + 1]!;
+      outNorm[v3 + 2] = normGroupAccum[g3 + 2]!;
+    }
   }
 
   posAttr.needsUpdate = true;
@@ -2626,8 +2821,77 @@ export function applyExtremePoseDeformer(
   options?: SkinDeformerOptions,
 ): SkinDeformationDiagnostics {
   const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
-  const coupled = solveCoupledRigPose(figure, pose, options);
-  const res = evaluateSkinDeformation(figure, options);
+  const { root } = figure;
+  const needsRootNormalize =
+    root.position.x !== 0 ||
+    root.position.y !== 0 ||
+    root.position.z !== 0 ||
+    root.quaternion.x !== 0 ||
+    root.quaternion.y !== 0 ||
+    root.quaternion.z !== 0 ||
+    root.quaternion.w !== 1 ||
+    root.scale.x !== 1 ||
+    root.scale.y !== 1 ||
+    root.scale.z !== 1;
+  const savedPos = needsRootNormalize ? root.position.clone() : null;
+  const savedQuat = needsRootNormalize ? root.quaternion.clone() : null;
+  const savedScale = needsRootNormalize ? root.scale.clone() : null;
+  if (needsRootNormalize) {
+    root.position.set(0, 0, 0);
+    root.quaternion.identity();
+    root.scale.set(1, 1, 1);
+  }
+  let coupled: CoupledRigDiagnostics;
+  let res: SkinDeformationDiagnostics;
+  const effectiveBodyType =
+    options?.bodyType ??
+    figure.deformation?.bodyType ??
+    (isBodyTypeId(figure.root.userData?.bodyType) ? figure.root.userData.bodyType : undefined);
+  try {
+    if (effectiveBodyType === 'chibi') {
+      // Anime Chibi (2.5-head compact torso) uses Layer 1 coupled biomechanical joints + clean GPU LBS skinning
+      // (avoiding adult-proportioned CPU DQS/Delta-Mush foldovers on deep kneeling bends while maintaining 0 eye error at ~0 ms)
+      const state = ensureFigureSkinState(figure, { ...options, bodyType: 'chibi' });
+      restoreBindAttributesIfPassThrough(state);
+      coupled = solveCoupledRigPose(figure, pose, { ...options, bodyType: 'chibi' });
+      figure.root.updateMatrixWorld(true);
+      figure.skins.forEach(skin => {
+        skin.skeleton.update();
+        skin.computeBoundingBox();
+        skin.computeBoundingSphere();
+      });
+      res = {
+        coupled,
+        leftForearmTwistRad: 0,
+        rightForearmTwistRad: 0,
+        leftElbowFlexionRad: 0,
+        rightElbowFlexionRad: 0,
+        leftKneeFlexionRad: 0,
+        rightKneeFlexionRad: 0,
+        leftHipFlexionRad: 0,
+        rightHipFlexionRad: 0,
+        maxCreaseCorrectionM: 0,
+        maxMuscleBulgeM: 0,
+        maxCapsulePushoutM: 0,
+        elapsedMs: 0,
+      };
+    } else {
+      coupled = solveCoupledRigPose(figure, pose, options);
+      res = evaluateSkinDeformation(figure, options);
+    }
+  } finally {
+    if (needsRootNormalize && savedPos && savedQuat && savedScale) {
+      root.position.copy(savedPos);
+      root.quaternion.copy(savedQuat);
+      root.scale.copy(savedScale);
+      root.updateMatrixWorld(true);
+      figure.skins.forEach(skin => {
+        skin.skeleton.update();
+        skin.computeBoundingBox();
+        skin.computeBoundingSphere();
+      });
+    }
+  }
   const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now();
   res.coupled = coupled;
   res.elapsedMs = t1 - t0;
@@ -2641,7 +2905,7 @@ export const poseAndDeformFigure = applyExtremePoseDeformer;
  * attributes + `boneInverses` + neutral helper bone rotations.
  */
 export function disableSkinDeformer(figure: Figure): void {
-  const state = figure.root.userData[SKIN_DEFORMER_STATE_KEY] as FigureSkinState | undefined;
+  const state = figureSkinStates.get(figure.root);
   if (!state) return;
   restoreBindAttributesIfPassThrough(state);
   if (state.clavicleL) state.clavicleL.quaternion.copy(state.clavicleLRestLocal);

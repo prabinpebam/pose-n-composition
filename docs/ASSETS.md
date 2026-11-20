@@ -238,3 +238,238 @@ mobile performance or deployed Pages URLs have passed integration QA. Those gate
 must be checked against the integrated models. No browser/GPU benchmark is claimed.
 The source PNG payload is substantial; decoded GPU texture memory can be much
 larger than the roughly 31.5 MB downloaded asset set.
+
+## Offline sculpted mannequin assets — active runtime figures (2026-11-19)
+
+The active runtime character assets in
+[public/models/mannequin/](../public/models/mannequin/) derive from the
+**MakeHuman Community hm08 basemesh and official artist-authored targets**
+(CC0 1.0 Universal), replacing the earlier heuristic warps of the Quaternius
+superhero mesh while retaining the CC0 Quaternius sculpted hairstyles and CC0
+`UAL1_Standard.glb` motion library.
+
+### License and reproducible sources
+
+The basemesh, game-engine rig/weights, eyes, and targets are **CC0 1.0 Universal**.
+The source OBJ and eye-proxy headers explicitly record the September 2020 CC0
+release and credit Data Collection AB, Joel Palmius, and Jonas Hauquier.
+Credit MakeHuman Community as a courtesy, without implying endorsement.
+Generated textures and anatomical surface refinements are also dedicated to
+CC0 1.0. No MakeHuman/MPFB program code is copied or executed.
+
+- MPFB2 revision: `9de0707fdc88438d7c53a1a2ac7937d9221e2431`.
+- MakeHuman eye revision: `a8bc2d54ff0ac92e78ff71431b1023eda42bf482`.
+- [Exact source URLs, sizes, and SHA-256 lock](../public/models/mannequin/sources.lock.json).
+- [Upstream CC0 text, preserved unchanged](../public/models/mannequin/LICENSE-MakeHuman.txt).
+- [Every gender/archetype sculpt recipe](../public/models/mannequin/recipes.json).
+- [Geometry checks and measured original Superhero/UAL1 bone transforms](../public/models/mannequin/build-report.json).
+
+Run the original Node/Three builder from the repository root:
+
+```powershell
+node scripts\build-mannequin-assets.mjs
+node scripts\build-mannequin-assets.mjs --offline
+node scripts\build-mannequin-assets.mjs --verify
+```
+
+The first command downloads only public CC0 inputs from the two pinned official
+GitHub revisions. Subsequent builds verify the committed SHA-256 lock.
+`--offline` requires the complete cache, normally
+`%TEMP%\pose-char-research\pinned`; `MANNEQUIN_CACHE` can select another directory.
+`--update-lock` is only for deliberately adding new pinned CC0 inputs; an existing
+input with a different digest is still rejected. No packages are installed.
+
+### Delivered geometry and materials
+
+- [Mannequin_Female.glb](../public/models/mannequin/Mannequin_Female.glb):
+  approximately 4.85 MB, baseline height 1.75 m.
+- [Mannequin_Male.glb](../public/models/mannequin/Mannequin_Male.glb):
+  approximately 4.83 MB, baseline height 1.80 m.
+- Each contains `Body`, `Eyes`, and `Eyebrows` skinned meshes and 53 bones,
+  including all three phalanges of each finger. Optional Quaternius terminal
+  finger/toe leaf bones are not needed by these weights.
+- The body is a closed two-manifold: 13,380 authoring vertices, one offline
+  Catmull-Clark level, **53,514 welded / 55,784 UV-split vertices** and
+  **107,024 triangles**. Smooth shared normals are computed across UV charts (`maximumSeamGap = 0`).
+- Eyes are built as full anatomical orbital spheres (`12,162` split vertices across
+  `2 × 96 × 64` UV spheres with welded poles) centered on the morphed CC0
+  `helper-l-eye` / `helper-r-eye` landmarks (`center.z -= 0.008 dm`, `radius *= 0.965`,
+  subtle `+0.35 mm` corneal dome) with natural upper-eyelid drape so eyes sit cleanly
+  inside the orbital socket in front, oblique (`68°`), and `90°` profile views.
+  Vertex colors (`COLOR_0`) supply warm ivory/caruncle sclera, upper-lid AO shadow,
+  limbal-ringed espresso-amber irises, pupils, and dual catchlights.
+  `Eyebrows` (`272` split / `204` welded vertices = `2 × (51 brow + 51 upper lash)`),
+  weighted entirely to `Head`, combines skin-snapped arched 3D eyebrows (tinted by
+  `hairColor`) with a dark charcoal 3D upper-eyelash canopy (`[0.04, 0.035, 0.035]`)
+  fitted directly to the subdivided eyelid margin (`fitBrowsAndLashes`).
+- Embedded 1024 x 1024 unpremultiplied RGBA PNGs are also supplied alongside
+  each GLB (`Mannequin_Female.png`, `Mannequin_Male.png`, `Mannequin_Female_Chibi.png`,
+  `Mannequin_Male_Chibi.png`). RGB is neutral cavity-AO grayscale around 232.
+  **Alpha is an outfit selector, not transparency**: `0` = skin, `255` = reference-matched
+  athletic attire (sweetheart underbust sport-bandeau with thin shoulder straps + V-hip
+  athletic briefs on Female; tailored low-rise compression trunks on Male).
+  Both the texture and material carry the `pncOutfitMask` extras marker and are decoded
+  at runtime into unpremultiplied RGBA `THREE.DataTexture`s bypassing `Canvas2D` alpha premultiplication.
+- No comic-book normal maps or painted abdominal trenches are used.
+
+The subdivision is a deliberate quality/performance tradeoff over the raw hm08
+cage. It smooths large-bust, cheek, and skull silhouettes but increases CPU
+deformation work about fourfold. The earlier raw-cage Delta Mush benchmark must
+**not** be presented as a benchmark for these subdivided assets.
+
+All 18 shapes face +Z, with anatomical left +X and Y up. Adult head counts,
+measured from the central chin landmarks to the crown, are 7.5 / 8.0 / 7.8 /
+8.2 / 7.6 / 7.4 / 7.3 / 7.2 for realistic through obese. Both Chibi shapes are
+**2.50 heads and 1.05 m tall**, including shortened pelvis, torso, limbs, hands,
+and feet. Chibi is intentionally **anime**, not a realistic baby: rounded upper
+cranium, softened heart/V chin, smooth face plane, tiny button nose/mouth,
+enlarged low-set eye openings, flattened glossy purple/blue anime eyes with
+gradient irises and two catchlights, and dark upper lash arcs. Dedicated Chibi
+PNGs remove realistic facial cavity shading without changing the outfit mask.
+Body mass comes from the official muscle/weight and localized adipose sculpts,
+not large lateral shifts of the shoulder/hip joints. Male busty uses muscle,
+ribcage depth, and width targets; it never uses female cup targets.
+
+Rest geometry is baked with normalized top-four-weight dual-quaternion skinning,
+then realigned after proportion changes: thigh/calf directions `(0,-1,0)`,
+upper arms `normalize(+/-0.12,-1,0)`, forearms `(0,-1,0)`. This matches the
+application adapter's arms-down neutral stance, **not** the unmodified
+Quaternius file's authored T-pose. Per-gender bone world orientations, including
+the exact `Head` orientation, follow the measured Superhero source. Every
+shape has independently recomputed joint-helper locations and bind transforms.
+
+### Archetype bundle schema, version 1
+
+[archetypes.json](../public/models/mannequin/archetypes.json) describes
+[archetypes.bin](../public/models/mannequin/archetypes.bin) (7,959,312 bytes);
+[archetypes.bin.gz](../public/models/mannequin/archetypes.bin.gz) is an equivalent
+gzip representation, approximately 5.65 MB. The JSON gives the uncompressed
+SHA-256 and length. All typed data is **little endian**; offsets are relative to
+the uncompressed binary and aligned to four bytes.
+
+```text
+schemaVersion: 1
+baseBodyType: "realistic"
+boneNames: string[53]                    # exact glTF skeleton index order
+gender.female | gender.male:
+  glb: string
+  meshes: [{ name, vertexCount, weld: {byteOffset, byteLength}, weldCount }]
+  archetypes.<BodyTypeId>:
+    meshes: [{ name, byteOffset, byteLength, scale, maximumError, color? }]
+    bodyTexture?: string
+    floorOffsetY: number
+    boneLocalTranslations: { byteOffset, byteLength }
+    boneWorldTransforms: { byteOffset, byteLength }
+```
+
+For each mesh, preserve the GLB's immutable **realistic** POSITION array and
+decode the corresponding `Int16` array in its existing split-vertex order:
+
+```text
+newPosition[i] = realisticPosition[i] + int16Delta[i] * scale
+newPosition[y component] += floorOffsetY
+```
+
+Always decode against the baseline, never against the previous archetype.
+`floorOffsetY` corrects sub-0.02-mm quantization drift so the lowest body vertex
+is exactly at Y=0. It applies to all three meshes. The bone tables already
+include that correction.
+
+For Chibi, `Eyes` and `Eyebrows` mesh records additionally contain
+`color: {byteOffset, byteLength, componentType: "float32"}`: absolute
+`Float32[vertexCount*3]` **linear RGB COLOR_0**, not deltas. Both baseline
+materials already enable vertex colors. `bodyTexture` names the corresponding
+`Mannequin_Female_Chibi.png` or `Mannequin_Male_Chibi.png`, using the same UVs,
+sRGB color space, `flipY=false`, and the same outfit-selector alpha as baseline.
+Restore immutable baseline colors and the baseline body texture when leaving
+Chibi; do not retain its anime colors or clean-face map on adult archetypes.
+
+`boneLocalTranslations` is `Float32[53*3]`, parent-local XYZ; retain the GLB's
+local rest quaternions. `boneWorldTransforms` is `Float32[53*7]`, interleaved
+`x,y,z,qx,qy,qz,qw`, in native asset coordinates. Recompute inverse-bind matrices
+after applying translations, in a consistent asset-local coordinate frame.
+`meshes[].weld` is `Uint16[vertexCount]` mapping each split vertex to a welded
+vertex. Accumulate triangle-area-weighted normals by this mapping and scatter
+them back to split vertices, then update geometry and posed bounds.
+
+### Required runtime integration before enabling
+
+1. Load both new GLBs plus the bundle before synchronous body-type application.
+   The existing heuristic body warper treats **heroic** as its baseline; this
+   bundle deliberately uses **realistic**. Do not mix those assumptions.
+2. Bypass legacy `normalizeBodyAlbedoAndOutfitMap` for `pncOutfitMask` materials
+   or textures. Canvas2D would discard RGB in alpha-zero skin texels and the
+   color-inference step would erase the authored outfit selector.
+3. Keep the existing figure root transform, pose, selection, and independent
+   instance buffers when applying a shape. Apply bind changes in native model
+   space, preserving source rest quaternions; do not zero rotations or apply
+   world-space bone positions as local translations.
+   Keep independent `Skeleton` objects and cloned inverse-bind matrix arrays
+   for Body/Eyes/Eyebrows, sharing only the Bone objects. The CPU body's
+   pass-through inverse-bind updates must not overwrite accessory inverse binds.
+4. Reuse the proportion module's existing bind/deformer reset mechanism and
+   increment `figure.root.userData.__bodyProportionRevision`; update `bodyType`
+   and `bodyProportionHeadScale`. The current checkout does not export the
+   blueprint's proposed `notifyFigureRestChanged` helper.
+5. Fit hairstyles from measured morphed scalp bounds. The current hair adapter's
+   hardcoded Superhero skull envelopes do not guarantee fit on these heads,
+   especially Chibi. This asset-only task does not change that adapter.
+6. For Chibi, set `figure.deformation.enableContactAndBulge = false` until
+   anatomical contact/bulge correctives are calibrated for its compact torso.
+   The unchanged adult-calibrated pass creates torso foldovers in Chibi
+   Kneeling. GPU skinning and the advanced pipeline with **only this option
+   disabled** render the five tested poses cleanly, retaining anatomical limits,
+   coupled joints, twist distribution, hybrid DQS, and Delta Mush. Leave adult
+   contact/bulge enabled. Do not silently enable the uncalibrated pass for Chibi.
+
+### Isolated visual verification
+
+With the existing studio Vite server running, start the dedicated, read-only
+asset harness (it does not stop or change that server):
+
+```powershell
+node scripts\build-mannequin-assets.mjs --preview
+```
+
+Open `http://127.0.0.1:5187/` in a new isolated browser page. The harness resolves
+the running studio's actual Three modules and uses its actual `preset` and
+`setFigurePose` implementations. It exposes `renderSheet(mode, gender)`,
+`renderDetails(mode)`, `renderPoses(advanced=false, type="realistic", options={})`,
+`renderAnimeChibi("lit" | "cel")`, `renderMotion()`,
+`benchmarkDeformer()`, and `saveVerification(images)` for Playwright. The latter
+persists actual results only to the temporary verification directory.
+Contact sheets show
+all nine archetypes at front / three-quarter / side angles in clay and lit
+skin/outfit modes, plus torso/Chibi-eye closeups and both genders in Neutral,
+Contrapposto, Seated, Reach, and Kneeling presets.
+
+The anime sheets show both genders, full body and face closeups, front /
+three-quarter / side in lit and Three `MeshToonMaterial` cel modes. This is a
+native cel check, not a claim that the application's NPR shader integration is
+already complete. The motion smoke uses the actual UAL1 `Walk_Loop` extraction,
+four normalized times per gender, with all 17 semantic joints mapped.
+Advanced-pose checks exercise the existing anatomical CPU pipeline on the
+already-shaped native geometry, including Chibi with contact/bulge disabled and
+head-attached accessories. The uncalibrated Chibi contact/bulge comparison is
+preserved separately as a known-failing visual probe, not counted as a pass.
+Across 15 pose changes per tested gender/type, eyes and brows exactly followed
+the posed Head transform (maximum attachment error zero).
+
+One isolated Chromium run measured synchronous warm `setFigurePose` medians of
+23.9 / 33.3 ms for female/male realistic and 31.9 / 31.7 ms for female/male
+Chibi with contact/bulge disabled. Each median uses ten changes after five
+warmups; the largest measured change was 49.9 ms. These timings exclude WebGL
+drawing and are machine/load-dependent, not a 60-fps animation benchmark.
+
+Verification also checks all 18 quantized floors and UV seam positions (both
+exactly zero error), reconstructed bone positions (maximum 0.000000113 m),
+normalized weights/normals, closed body topology, Chibi color ranges, and
+unchanged Chibi outfit alpha. All 13 generated files were byte-for-byte identical
+after a repeated offline build. These checks do not install dependencies.
+
+These are native asset/bundle and semantic-pose checks, not a claim that the
+unchanged studio already consumes this new asset family. Full shader-mode,
+hairstyle, animation-library coverage, multi-figure CPU performance, and deployed
+application QA remain integration gates. This high-density body is not a
+60-fps guarantee; benchmark the final integrated workload rather than reusing
+the raw-cage timing.

@@ -8,11 +8,7 @@ an independent composition camera. No accounts, backend, uploads or telemetry.
 [Source](https://github.com/prabinpebam/pose-n-composition) ·
 [Research](docs/RESEARCH.md) · [Acceptance evidence](docs/DEFINITION_OF_DONE.md)
 
-The figures are **Quaternius Universal Base Characters, free Standard edition,
-Superhero male/female**, under the exact distribution's CC0 license. They have
-runtime-adjustable proportions based on the free superhero meshes, not the paid Regular or Teen variants.
-See [asset provenance and license](docs/ASSETS.md). First load downloads about
-30 MB of same-site model/textures; load errors are visible and retryable.
+The figures are **CC0 1.0 artist-sculpted MakeHuman / MPFB2 `hm08` anatomical mannequins** (`Mannequin_Female.glb` at `1.75 m` and `Mannequin_Male.glb` at `1.80 m`, plus 18 pre-baked proportion archetypes including a `1.05 m` 2.5-head **Anime Chibi**), paired with **CC0 Quaternius sculpted hairstyles** and **CC0 Quaternius Universal Animation Library** motion cycles. See [asset provenance and license](docs/ASSETS.md). First load downloads about 18 MB of same-site model/morph/texture assets; load errors are visible and retryable.
 
 ## Run
 
@@ -69,15 +65,7 @@ to extend selection. Move/Rotate operate about the selected position centroid.
 **Advanced Copy · Skeleton Tree** copies checked joints only, preserving every
 other target joint. These edits are single-step undoable and immediately autosaved.
 
-**Appearance & Theme:** Select a figure to customize **Skin color** and
-**Outfit / dress color** independently (both luminance-normalized at runtime from
-the raw CC0 albedo/roughness maps into unpremultiplied RGBA `DataTexture`s so
-fair, olive, deep, or stylized tones render true to swatch without baked hue
-contamination), switch **Hairstyle** (`Side parted`,
-`Long waves`, `Twin buns`, `Short crop`, `Parted + beard`, or `None (bald)`)
-using sculpted CC0 Quaternius hair meshes adapted to each skull, and use
-**Hair & brow color** to tint scalp locks, eyebrows, and eyelashes together.
-Toggle **Light / Dark** studio themes anytime from the top bar.
+**Appearance, Swap & Scene Workflow:** Select any figure to swap **Base figure** (`Female` | `Male`) or **Body proportion** (`Realistic`, `Heroic`, `Lean`, `Slender`, `Busty`, `Chubby`, `Fat`, `Obese`, or 2.5-head `Chibi`) **in-place** while preserving world X/Z placement and support contact height (`minWorldY`, keeping floor-grounded characters planted at `y = 0` and elevated/seated characters at their support height). Selecting or adding **Chibi** automatically switches the viewport from `Realistic` to anime cel-shaded `Illustration` mode. Customize **Skin color** and **Outfit / dress color** independently via unpremultiplied RGBA `DataTexture`s (`RGB` cavity-AO grayscale + `Alpha` tailored two-piece / compression-trunk outfit mask), switch **Hairstyle** (`Side parted`, `Long waves`, `Twin buns`, `Short crop`, `Parted + beard`, or `None (bald)`) dynamically fitted to each morphed skull envelope, and use **Hair & brow color** to tint scalp locks and sculpted 3D eyebrows while keeping upper-eyelash canopies crisp charcoal. Use **New scene** in either the top **App Bar** or the **Library** tab to reset to a clean studio stage with single-step **Undo** restoration. Toggle **Light / Dark** studio themes anytime from the top bar.
 
 ### Controls
 

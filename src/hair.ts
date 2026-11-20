@@ -2,6 +2,7 @@ import * as T from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { DEFAULT_HAIR_COLOR, type Body } from './model';
+import type { SkullEnvelope } from './bodyProportions';
 
 export const HAIR_STYLES = ['parted', 'long', 'buns', 'buzz', 'partedBeard', 'none'] as const;
 export type HairStyle = typeof HAIR_STYLES[number];
@@ -34,10 +35,16 @@ const ASSET_AUTHORED_BODY: Record<HairAssetId, Body> = {
   BuzzedFemale: 'female',
 };
 
-// Measured native skull envelopes in Superhero_Male_FullBody.gltf and Superhero_Female_FullBody.gltf
-const NATIVE_SKULL: Record<Body, { center: [number, number, number]; half: [number, number, number]; crownY: number }> = {
-  male: { center: [0, 1.7131, 0.00455], half: [0.0906, 0.097, 0.11065], crownY: 1.8101 },
-  female: { center: [0, 1.65985, -0.0005], half: [0.0889, 0.10675, 0.1124], crownY: 1.7666 },
+// Measured native skull envelopes in the authored Quaternius Hair_*.gltf coordinate frame
+export const NATIVE_SKULL: Record<Body, SkullEnvelope> = {
+  male: { center: [0, 1.7131, 0.00455], half: [0.0906, 0.097, 0.11065], crownY: 1.8101, chinY: 1.6161 },
+  female: { center: [0, 1.65985, -0.0005], half: [0.0889, 0.10675, 0.1124], crownY: 1.7666, chinY: 1.5531 },
+};
+
+// Upper-cranium band envelopes (excluding protruding ears & nose tip) matching measureHeadSkullFromPositions
+const NATIVE_CRANIUM: Record<Body, SkullEnvelope> = {
+  male: { center: [0, 1.6933, -0.0066], half: [0.0740, 0.1168, 0.0995], crownY: 1.8101, chinY: 1.5766 },
+  female: { center: [0, 1.6524, -0.0113], half: [0.0742, 0.1143, 0.1006], crownY: 1.7666, chinY: 1.5381 },
 };
 
 const templates = new Map<HairAssetId, HairTemplate>();
@@ -159,6 +166,102 @@ function crossBodyMatrix(from: Body, to: Body): T.Matrix4 {
   return m.multiply(toTarget).multiply(scale).multiply(toOrigin);
 }
 
+function cloneStandaloneHairGeometry(src: T.BufferGeometry): T.BufferGeometry {
+  const dst = new T.BufferGeometry();
+  if (src.index) {
+    const idxArr = src.index.array;
+    const copyIdx =
+      idxArr instanceof Uint32Array ? new Uint32Array(idxArr) : new Uint16Array(idxArr as ArrayLike<number>);
+    dst.setIndex(new T.BufferAttribute(copyIdx, 1, src.index.normalized));
+  }
+  for (const [name, attr] of Object.entries(src.attributes)) {
+    const count = attr.count;
+    const itemSize = attr.itemSize;
+    if (attr instanceof T.InterleavedBufferAttribute) {
+      const Ctor = attr.array.constructor as { new (length: number): T.TypedArray };
+      const copy = new Ctor(count * itemSize);
+      for (let i = 0; i < count; i++) {
+        for (let k = 0; k < itemSize; k++) {
+          copy[i * itemSize + k] = attr.getComponent(i, k);
+        }
+      }
+      dst.setAttribute(name, new T.BufferAttribute(copy, itemSize, attr.normalized));
+    } else {
+      const Ctor = attr.array.constructor as { new (src: ArrayLike<number>): T.TypedArray };
+      const copy = new Ctor(attr.array as unknown as ArrayLike<number>);
+      dst.setAttribute(name, new T.BufferAttribute(copy, itemSize, attr.normalized));
+    }
+  }
+  return dst;
+}
+
+function warpHairGeometryToTargetSkull(
+  geometry: T.BufferGeometry,
+  authoredBody: Body,
+  targetSkull: SkullEnvelope,
+): void {
+  const src = NATIVE_CRANIUM[authoredBody];
+  // Match upper-cranium band 1:1 (excluding ear/nose flare) with radial scalp clearance
+  const sx = (targetSkull.half[0] / src.half[0]) * 1.07;
+  const sz = (targetSkull.half[2] / src.half[2]) * 1.07;
+  const syHead = targetSkull.half[1] / src.half[1];
+  const isChibiScale = sx > 1.45;
+  // On 2.5-head Anime Chibi, large eyes sit higher in the face than adult proportions: keep bangs slightly higher above the large iris/brows!
+  const sy = syHead * (isChibiScale ? 0.87 : 1.02);
+  const dstCrownY = targetSkull.crownY + (isChibiScale ? 0.008 : 0.004) * syHead;
+  const jawDropSrc = src.half[1] * 1.48;
+
+  // Inner scalp ellipsoid guard so deep center partings (e.g. Long waves on wide Chibi skull) never dip inside the scalp dome
+  const domeCy = targetSkull.crownY - targetSkull.half[1] * 0.60;
+  const domeRx = targetSkull.half[0] * 1.025;
+  const domeRy = targetSkull.half[1] * 0.625;
+  const domeRz = targetSkull.half[2] * 1.025;
+
+  const pos = geometry.getAttribute('position') as T.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    const x0 = pos.getX(i);
+    const y0 = pos.getY(i);
+    const z0 = pos.getZ(i);
+    const dx = x0 - src.center[0];
+    const dz = z0 - src.center[2];
+    const drop = src.crownY - y0;
+
+    let x1: number;
+    let y1: number;
+    let z1: number;
+    if (isChibiScale && drop > jawDropSrc) {
+      const below = drop - jawDropSrc;
+      const t = Math.min(1, below / 0.14);
+      const smooth = t * t * (3 - 2 * t);
+      const latFactor = 1 - 0.30 * smooth;
+      x1 = targetSkull.center[0] + dx * sx * latFactor;
+      y1 = dstCrownY - jawDropSrc * sy - below * sy * 0.48;
+      z1 = targetSkull.center[2] + dz * sz * (1 - 0.18 * smooth);
+    } else {
+      x1 = targetSkull.center[0] + dx * sx;
+      y1 = dstCrownY - drop * sy;
+      z1 = targetSkull.center[2] + dz * sz;
+    }
+
+    // Upper-scalp dome anti-clipping pushout (excludes beard / lower neck hair)
+    if (y1 > domeCy && drop < jawDropSrc * 0.92) {
+      const nx = (x1 - targetSkull.center[0]) / domeRx;
+      const ny = (y1 - domeCy) / domeRy;
+      const nz = (z1 - targetSkull.center[2]) / domeRz;
+      const rSq = nx * nx + ny * ny + nz * nz;
+      if (rSq > 1e-6 && rSq < 1.0) {
+        const invR = 1.0 / Math.sqrt(rSq);
+        x1 = targetSkull.center[0] + nx * invR * domeRx;
+        y1 = domeCy + ny * invR * domeRy;
+        z1 = targetSkull.center[2] + nz * invR * domeRz;
+      }
+    }
+
+    pos.setXYZ(i, x1, y1, z1);
+  }
+  pos.needsUpdate = true;
+}
+
 function assetsForStyle(body: Body, style: HairStyle): HairAssetId[] {
   switch (style) {
     case 'parted': return ['SimpleParted'];
@@ -175,6 +278,7 @@ export function buildHairGeometryAndMaterial(
   style: HairStyle,
   headFromNative: T.Matrix4,
   color: string,
+  targetSkull?: SkullEnvelope,
 ): { geometry: T.BufferGeometry; material: T.MeshStandardMaterial; visible: boolean } | null {
   if (style === 'none') {
     const empty = new T.SphereGeometry(0.001, 4, 3);
@@ -189,9 +293,15 @@ export function buildHairGeometryAndMaterial(
   for (const id of ids) {
     const tpl = templates.get(id)!;
     if (!primaryTemplate) primaryTemplate = tpl;
-    const g = tpl.geometry.clone();
-    const xform = headFromNative.clone().multiply(crossBodyMatrix(tpl.authoredBody, body));
-    g.applyMatrix4(xform);
+    const g = cloneStandaloneHairGeometry(tpl.geometry);
+    if (targetSkull) {
+      warpHairGeometryToTargetSkull(g, tpl.authoredBody, targetSkull);
+      g.applyMatrix4(headFromNative);
+      g.computeVertexNormals();
+    } else {
+      const xform = headFromNative.clone().multiply(crossBodyMatrix(tpl.authoredBody, body));
+      g.applyMatrix4(xform);
+    }
     g.computeBoundingBox();
     g.computeBoundingSphere();
     geos.push(g);
@@ -206,7 +316,9 @@ export function buildHairGeometryAndMaterial(
 }
 
 export function prepareEyebrowMaterial(material: T.MeshStandardMaterial, color: string): void {
-  material.map = normalizeHairAlbedoMap(material.map);
+  if (material.map) {
+    material.map = normalizeHairAlbedoMap(material.map);
+  }
   material.color.set(color);
   material.roughness = 0.68;
   material.metalness = 0.02;

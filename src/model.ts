@@ -246,6 +246,29 @@ export function createItem(kind: Item['kind'], index = 0, bodyType: BodyTypeId =
     ...(kind === 'light' ? { position: [3, 5, 3] as Vec3, target: [0, 1, 0] as Vec3, intensity: 30 } : {}),
   };
 }
+export function swapItemBodyKind(item: Item, nextKind: Body, anchoredY?: number): Item {
+  if (!isBody(item.kind)) {
+    throw new Error('Only character figures can swap base figure kind.');
+  }
+  const prevKind = item.kind;
+  const preservedOutfitColor = item.outfitColor ?? defaultOutfitColor(prevKind);
+  const preservedHairStyle: HairStyleId = item.hairStyle ?? (prevKind === 'female' ? 'long' : 'parted');
+  const preservedHairColor = item.hairColor ?? DEFAULT_HAIR_COLOR;
+  const preservedBodyType = item.bodyType ?? DEFAULT_BODY_TYPE;
+  const preservedLimits = item.anatomicalLimits ?? true;
+  const preservedPose = item.pose ? clone(item.pose) : neutralPose();
+  return {
+    ...clone(item),
+    kind: nextKind,
+    position: [item.position[0], anchoredY ?? item.position[1], item.position[2]],
+    pose: preservedPose,
+    bodyType: preservedBodyType,
+    outfitColor: preservedOutfitColor,
+    hairStyle: preservedHairStyle,
+    hairColor: preservedHairColor,
+    anatomicalLimits: preservedLimits,
+  };
+}
 export function initialScene(): SceneState {
   const male = createItem('male'); male.position = [-0.5, -0.013, 0]; male.pose = preset('Contrapposto');
   const female = createItem('female'); female.position = [0.55, -0.005, 0.05]; female.pose = preset('Relaxed'); female.rotation[1] = -0.15;
@@ -254,6 +277,19 @@ export function initialScene(): SceneState {
     items: [male, female, createItem('light')], background: '#343231', renderStyle: { ...DEFAULT_RENDER_STYLE },
     camera: { position: [3.4, 2.3, 5.7], target: [0, 1, 0], focalLength: 50, near: 0.05, far: 100, aspect: '3:2', dof: false, focus: 6.7, aperture: 0.0015, maxBlur: 0.012 },
   };
+}
+export const createDefaultScene = initialScene;
+
+/**
+ * Chibi uses anime proportions and large anime eyes that require cel-shading + ink
+ * outlines (`illustration`) by default when the scene is still in default `realistic` PBR mode.
+ */
+export function applyChibiDefaultRenderStyle(scene: SceneState, bodyType?: BodyTypeId): void {
+  if (bodyType !== 'chibi') return;
+  const currentMode = scene.renderStyle?.mode ?? DEFAULT_RENDER_STYLE.mode;
+  if (currentMode === 'realistic') {
+    scene.renderStyle = { ...DEFAULT_RENDER_STYLE, ...scene.renderStyle, mode: 'illustration' };
+  }
 }
 
 const fail = (message: string): never => { throw new Error(`Invalid file: ${message}`); };

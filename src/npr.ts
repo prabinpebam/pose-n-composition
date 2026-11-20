@@ -123,7 +123,11 @@ void main() {
       if (id === undefined) { id = this.nextId++; this.ids.set(object, id); }
       const mesh = object as T.Mesh;
       const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
-      const map = material instanceof T.MeshStandardMaterial && material.userData.outfitColorUniform ? material.map : null;
+      const map =
+        material instanceof T.MeshStandardMaterial &&
+        (material.userData.hasOutfitMask || Boolean(material.userData.outfitColorUniform))
+          ? material.map
+          : null;
       this.uniforms.uObjectId.value = id;
       this.uniforms.uHasMask.value = Boolean(map);
       this.uniforms.uMask.value = map;

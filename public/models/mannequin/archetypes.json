@@ -1,0 +1,769 @@
+{
+  "schemaVersion": 1,
+  "encoding": "int16-le-delta",
+  "baseBodyType": "realistic",
+  "binary": "archetypes.bin",
+  "compressedBinary": "archetypes.bin.gz",
+  "coordinates": "meters; Y up; +Z forward; anatomical left +X",
+  "boneNames": [
+    "root",
+    "ball_l",
+    "ball_r",
+    "calf_l",
+    "calf_r",
+    "clavicle_l",
+    "clavicle_r",
+    "foot_l",
+    "foot_r",
+    "hand_l",
+    "hand_r",
+    "Head",
+    "index_01_l",
+    "index_01_r",
+    "index_02_l",
+    "index_02_r",
+    "index_03_l",
+    "index_03_r",
+    "lowerarm_l",
+    "lowerarm_r",
+    "middle_01_l",
+    "middle_01_r",
+    "middle_02_l",
+    "middle_02_r",
+    "middle_03_l",
+    "middle_03_r",
+    "neck_01",
+    "pelvis",
+    "pinky_01_l",
+    "pinky_01_r",
+    "pinky_02_l",
+    "pinky_02_r",
+    "pinky_03_l",
+    "pinky_03_r",
+    "ring_01_l",
+    "ring_01_r",
+    "ring_02_l",
+    "ring_02_r",
+    "ring_03_l",
+    "ring_03_r",
+    "spine_01",
+    "spine_02",
+    "spine_03",
+    "thigh_l",
+    "thigh_r",
+    "thumb_01_l",
+    "thumb_01_r",
+    "thumb_02_l",
+    "thumb_02_r",
+    "thumb_03_l",
+    "thumb_03_r",
+    "upperarm_l",
+    "upperarm_r"
+  ],
+  "gender": {
+    "female": {
+      "glb": "Mannequin_Female.glb",
+      "meshes": [
+        {
+          "name": "Body",
+          "vertexCount": 55784,
+          "weld": {
+            "byteOffset": 0,
+            "byteLength": 111568
+          },
+          "weldCount": 53514
+        },
+        {
+          "name": "Eyes",
+          "vertexCount": 12100,
+          "weld": {
+            "byteOffset": 111568,
+            "byteLength": 24200
+          },
+          "weldCount": 12100
+        },
+        {
+          "name": "Eyebrows",
+          "vertexCount": 204,
+          "weld": {
+            "byteOffset": 135768,
+            "byteLength": 408
+          },
+          "weldCount": 204
+        }
+      ],
+      "archetypes": {
+        "realistic": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 136176,
+              "byteLength": 334704,
+              "scale": 1,
+              "maximumError": 0
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 470880,
+              "byteLength": 72600,
+              "scale": 1,
+              "maximumError": 0
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 543480,
+              "byteLength": 1224,
+              "scale": 1,
+              "maximumError": 0
+            }
+          ],
+          "floorOffsetY": 0,
+          "boneLocalTranslations": {
+            "byteOffset": 544704,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 545340,
+            "byteLength": 1484
+          }
+        },
+        "heroic": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 546824,
+              "byteLength": 334704,
+              "scale": 9.184014120381394e-7,
+              "maximumError": 4.591972945810531e-7
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 881528,
+              "byteLength": 72600,
+              "scale": 2.551864791702438e-7,
+              "maximumError": 1.2757686468269774e-7
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 954128,
+              "byteLength": 1224,
+              "scale": 2.591057665764339e-7,
+              "maximumError": 1.2921731150361548e-7
+            }
+          ],
+          "floorOffsetY": 0,
+          "boneLocalTranslations": {
+            "byteOffset": 955352,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 955988,
+            "byteLength": 1484
+          }
+        },
+        "lean": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 957472,
+              "byteLength": 334704,
+              "scale": 0.000001281128698216253,
+              "maximumError": 6.405452450536364e-7
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 1292176,
+              "byteLength": 72600,
+              "scale": 5.052321487002903e-7,
+              "maximumError": 2.524918980067667e-7
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 1364776,
+              "byteLength": 1224,
+              "scale": 5.212654524524861e-7,
+              "maximumError": 2.6042690279975966e-7
+            }
+          ],
+          "floorOffsetY": 0,
+          "boneLocalTranslations": {
+            "byteOffset": 1366000,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 1366636,
+            "byteLength": 1484
+          }
+        },
+        "slender": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 1368120,
+              "byteLength": 334704,
+              "scale": 0.000002316205383657099,
+              "maximumError": 0.0000011580678951610829
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 1702824,
+              "byteLength": 72600,
+              "scale": 6.964605333458664e-7,
+              "maximumError": 3.4814907444793985e-7
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 1775424,
+              "byteLength": 1224,
+              "scale": 7.40930447138855e-7,
+              "maximumError": 3.672531272633228e-7
+            }
+          ],
+          "floorOffsetY": 0,
+          "boneLocalTranslations": {
+            "byteOffset": 1776648,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 1777284,
+            "byteLength": 1484
+          }
+        },
+        "busty": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 1778768,
+              "byteLength": 334704,
+              "scale": 0.000001632770630320641,
+              "maximumError": 8.163725791251043e-7
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 2113472,
+              "byteLength": 72600,
+              "scale": 1.668982362426972e-7,
+              "maximumError": 8.344286381832284e-8
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 2186072,
+              "byteLength": 1224,
+              "scale": 1.7238291883352185e-7,
+              "maximumError": 8.604488129643206e-8
+            }
+          ],
+          "floorOffsetY": 0,
+          "boneLocalTranslations": {
+            "byteOffset": 2187296,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 2187932,
+            "byteLength": 1484
+          }
+        },
+        "chubby": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 2189416,
+              "byteLength": 334704,
+              "scale": 0.0000023148137443813793,
+              "maximumError": 0.000001157391293289331
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 2524120,
+              "byteLength": 72600,
+              "scale": 2.9552184381910003e-7,
+              "maximumError": 1.4771390092241073e-7
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 2596720,
+              "byteLength": 1224,
+              "scale": 2.900636567300929e-7,
+              "maximumError": 1.4469546057803277e-7
+            }
+          ],
+          "floorOffsetY": 0,
+          "boneLocalTranslations": {
+            "byteOffset": 2597944,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 2598580,
+            "byteLength": 1484
+          }
+        },
+        "fat": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 2600064,
+              "byteLength": 334704,
+              "scale": 0.000003516858941687769,
+              "maximumError": 0.000001758425035974548
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 2934768,
+              "byteLength": 72600,
+              "scale": 6.351642701797578e-8,
+              "maximumError": 3.174911634095355e-8
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 3007368,
+              "byteLength": 1224,
+              "scale": 5.686821663918222e-8,
+              "maximumError": 2.8399084222815486e-8
+            }
+          ],
+          "floorOffsetY": 0,
+          "boneLocalTranslations": {
+            "byteOffset": 3008592,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 3009228,
+            "byteLength": 1484
+          }
+        },
+        "obese": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 3010712,
+              "byteLength": 334704,
+              "scale": 0.000004504829354047484,
+              "maximumError": 0.000002252399211838396
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 3345416,
+              "byteLength": 72600,
+              "scale": 4.1048195990887315e-7,
+              "maximumError": 2.0510384014793548e-7
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 3418016,
+              "byteLength": 1224,
+              "scale": 4.1981406227864045e-7,
+              "maximumError": 2.0891532611201982e-7
+            }
+          ],
+          "floorOffsetY": 0,
+          "boneLocalTranslations": {
+            "byteOffset": 3419240,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 3419876,
+            "byteLength": 1484
+          }
+        },
+        "chibi": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 3421360,
+              "byteLength": 334704,
+              "scale": 0.000027114096505883558,
+              "maximumError": 0.00001355696182984284
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 3756064,
+              "byteLength": 72600,
+              "scale": 0.000026449661187927655,
+              "maximumError": 0.000013222297032683406,
+              "color": {
+                "byteOffset": 3828664,
+                "byteLength": 145200,
+                "componentType": "float32"
+              }
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 3973864,
+              "byteLength": 1224,
+              "scale": 0.00002463591149729541,
+              "maximumError": 0.00001231500735650315,
+              "color": {
+                "byteOffset": 3975088,
+                "byteLength": 2448,
+                "componentType": "float32"
+              }
+            }
+          ],
+          "bodyTexture": "Mannequin_Female_Chibi.png",
+          "floorOffsetY": 0.0000035931974858662875,
+          "boneLocalTranslations": {
+            "byteOffset": 3977536,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 3978172,
+            "byteLength": 1484
+          }
+        }
+      }
+    },
+    "male": {
+      "glb": "Mannequin_Male.glb",
+      "meshes": [
+        {
+          "name": "Body",
+          "vertexCount": 55784,
+          "weld": {
+            "byteOffset": 3979656,
+            "byteLength": 111568
+          },
+          "weldCount": 53514
+        },
+        {
+          "name": "Eyes",
+          "vertexCount": 12100,
+          "weld": {
+            "byteOffset": 4091224,
+            "byteLength": 24200
+          },
+          "weldCount": 12100
+        },
+        {
+          "name": "Eyebrows",
+          "vertexCount": 204,
+          "weld": {
+            "byteOffset": 4115424,
+            "byteLength": 408
+          },
+          "weldCount": 204
+        }
+      ],
+      "archetypes": {
+        "realistic": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 4115832,
+              "byteLength": 334704,
+              "scale": 1,
+              "maximumError": 0
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 4450536,
+              "byteLength": 72600,
+              "scale": 1,
+              "maximumError": 0
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 4523136,
+              "byteLength": 1224,
+              "scale": 1,
+              "maximumError": 0
+            }
+          ],
+          "floorOffsetY": 0,
+          "boneLocalTranslations": {
+            "byteOffset": 4524360,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 4524996,
+            "byteLength": 1484
+          }
+        },
+        "heroic": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 4526480,
+              "byteLength": 334704,
+              "scale": 6.992176575392885e-7,
+              "maximumError": 3.496087150542393e-7
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 4861184,
+              "byteLength": 72600,
+              "scale": 2.435275486537388e-7,
+              "maximumError": 1.2176377432726593e-7
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 4933784,
+              "byteLength": 1224,
+              "scale": 2.1926358214810362e-7,
+              "maximumError": 1.0946622261594208e-7
+            }
+          ],
+          "floorOffsetY": 0,
+          "boneLocalTranslations": {
+            "byteOffset": 4935008,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 4935644,
+            "byteLength": 1484
+          }
+        },
+        "lean": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 4937128,
+              "byteLength": 334704,
+              "scale": 0.0000010326003225950095,
+              "maximumError": 5.162965792879226e-7
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 5271832,
+              "byteLength": 72600,
+              "scale": 2.066865199505919e-7,
+              "maximumError": 1.0333927996392794e-7
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 5344432,
+              "byteLength": 1224,
+              "scale": 2.1886990220264346e-7,
+              "maximumError": 1.0907959297618008e-7
+            }
+          ],
+          "floorOffsetY": 0,
+          "boneLocalTranslations": {
+            "byteOffset": 5345656,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 5346292,
+            "byteLength": 1484
+          }
+        },
+        "slender": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 5347776,
+              "byteLength": 334704,
+              "scale": 0.0000021811042513166154,
+              "maximumError": 0.0000010905521256585927
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 5682480,
+              "byteLength": 72600,
+              "scale": 4.1191112500261764e-7,
+              "maximumError": 2.0591030409043698e-7
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 5755080,
+              "byteLength": 1224,
+              "scale": 4.300449648474017e-7,
+              "maximumError": 2.1462766533226086e-7
+            }
+          ],
+          "floorOffsetY": 0,
+          "boneLocalTranslations": {
+            "byteOffset": 5756304,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 5756940,
+            "byteLength": 1484
+          }
+        },
+        "busty": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 5758424,
+              "byteLength": 334704,
+              "scale": 9.92420292089856e-7,
+              "maximumError": 4.962027545958852e-7
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 6093128,
+              "byteLength": 72600,
+              "scale": 2.588605978986719e-7,
+              "maximumError": 1.2940471316431976e-7
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 6165728,
+              "byteLength": 1224,
+              "scale": 2.486492542411236e-7,
+              "maximumError": 1.2395983068356e-7
+            }
+          ],
+          "floorOffsetY": 0,
+          "boneLocalTranslations": {
+            "byteOffset": 6166952,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 6167588,
+            "byteLength": 1484
+          }
+        },
+        "chubby": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 6169072,
+              "byteLength": 334704,
+              "scale": 0.0000031249427096747652,
+              "maximumError": 0.0000015624549799357623
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 6503776,
+              "byteLength": 72600,
+              "scale": 3.645744661417345e-7,
+              "maximumError": 1.8220444884199031e-7
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 6576376,
+              "byteLength": 1224,
+              "scale": 3.663147543812846e-7,
+              "maximumError": 1.827275360024097e-7
+            }
+          ],
+          "floorOffsetY": 0,
+          "boneLocalTranslations": {
+            "byteOffset": 6577600,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 6578236,
+            "byteLength": 1484
+          }
+        },
+        "fat": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 6579720,
+              "byteLength": 334704,
+              "scale": 0.00000394805265142513,
+              "maximumError": 0.0000019739671941205322
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 6914424,
+              "byteLength": 72600,
+              "scale": 7.891634044775304e-8,
+              "maximumError": 3.945191592077263e-8
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 6987024,
+              "byteLength": 1224,
+              "scale": 6.586918209353064e-8,
+              "maximumError": 3.279529066173813e-8
+            }
+          ],
+          "floorOffsetY": -0.000001120070189974563,
+          "boneLocalTranslations": {
+            "byteOffset": 6988248,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 6988884,
+            "byteLength": 1484
+          }
+        },
+        "obese": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 6990368,
+              "byteLength": 334704,
+              "scale": 0.000004847539686603569,
+              "maximumError": 0.0000024236947916657023
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 7325072,
+              "byteLength": 72600,
+              "scale": 4.844345443487458e-7,
+              "maximumError": 2.419653374781394e-7
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 7397672,
+              "byteLength": 1224,
+              "scale": 4.6388210867496346e-7,
+              "maximumError": 2.3168758449439164e-7
+            }
+          ],
+          "floorOffsetY": -5.871035051742933e-7,
+          "boneLocalTranslations": {
+            "byteOffset": 7398896,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 7399532,
+            "byteLength": 1484
+          }
+        },
+        "chibi": {
+          "meshes": [
+            {
+              "name": "Body",
+              "byteOffset": 7401016,
+              "byteLength": 334704,
+              "scale": 0.00002853903869423965,
+              "maximumError": 0.000014269412000538634
+            },
+            {
+              "name": "Eyes",
+              "byteOffset": 7735720,
+              "byteLength": 72600,
+              "scale": 0.000027847331886035326,
+              "maximumError": 0.000013923224730372219,
+              "color": {
+                "byteOffset": 7808320,
+                "byteLength": 145200,
+                "componentType": "float32"
+              }
+            },
+            {
+              "name": "Eyebrows",
+              "byteOffset": 7953520,
+              "byteLength": 1224,
+              "scale": 0.000026027654480730367,
+              "maximumError": 0.00001299820649318384,
+              "color": {
+                "byteOffset": 7954744,
+                "byteLength": 2448,
+                "componentType": "float32"
+              }
+            }
+          ],
+          "bodyTexture": "Mannequin_Male_Chibi.png",
+          "floorOffsetY": 0.000008260222636299538,
+          "boneLocalTranslations": {
+            "byteOffset": 7957192,
+            "byteLength": 636
+          },
+          "boneWorldTransforms": {
+            "byteOffset": 7957828,
+            "byteLength": 1484
+          }
+        }
+      }
+    }
+  },
+  "byteLength": 7959312,
+  "sha256": "fcd34bb8b0f101d37711f2e5e6a5c5fb233d2f5dfe8c558b56cd1573997364eb"
+}

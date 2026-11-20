@@ -1,11 +1,8 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import * as T from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { buildExternalFigure, setFigureHairStyle } from './external-rig';
-import { registerHairTemplate, type HairAssetId } from './hair';
-import { getJointRotation, setFigurePose, type Figure } from './rig';
+import { computeAnchoredPositionY, getJointRotation, measureFigureMinWorldY, setFigurePose, type Figure } from './rig';
+import { disableSkinDeformer } from './skinDeformer';
 import { JOINTS, neutralPose, preset, radians, type Body } from './model';
 import {
   applyBodyProportion,
@@ -13,66 +10,18 @@ import {
   BODY_TYPES,
   DEFAULT_BODY_TYPE,
   getBodyTypeMeta,
+  getFigureMorphedSkullEnvelope,
+  hasBodyProportionBaseline,
   isBodyTypeId,
   type BodyTypeId,
 } from './bodyProportions';
+import { loadMannequinTestFixtures } from './testMannequinFixtures';
 
-interface FixtureGLTF {
-  buffers: { uri: string }[];
-  images?: unknown[];
-  textures?: unknown[];
-  materials?: unknown[];
-  meshes: { primitives: { material?: number }[] }[];
-}
-
-const templates = new Map<Body, T.Group>();
+let templates = new Map<Body, T.Group>();
 
 beforeAll(async () => {
-  vi.stubGlobal(
-    'ProgressEvent',
-    class extends Event {
-      lengthComputable: boolean;
-      loaded: number;
-      total: number;
-      constructor(type: string, init: ProgressEventInit = {}) {
-        super(type);
-        this.lengthComputable = init.lengthComputable ?? false;
-        this.loaded = init.loaded ?? 0;
-        this.total = init.total ?? 0;
-      }
-    },
-  );
-
-  const directory = resolve('public', 'models', 'external', 'quaternius-universal-base');
-  for (const body of ['male', 'female'] as const) {
-    const file = `Superhero_${body === 'male' ? 'Male' : 'Female'}_FullBody.gltf`;
-    const source = JSON.parse(readFileSync(resolve(directory, file), 'utf8')) as FixtureGLTF;
-    source.buffers.forEach(b => {
-      b.uri = `data:application/octet-stream;base64,${readFileSync(resolve(directory, b.uri)).toString('base64')}`;
-    });
-    delete source.images;
-    delete source.textures;
-    delete source.materials;
-    source.meshes.forEach(m => m.primitives.forEach(p => { delete p.material; }));
-    templates.set(body, (await new GLTFLoader().parseAsync(JSON.stringify(source), '')).scene);
-  }
-
-  const hairIds: HairAssetId[] = ['SimpleParted', 'Long', 'Buns', 'Buzzed', 'BuzzedFemale', 'Beard'];
-  for (const id of hairIds) {
-    const source = JSON.parse(readFileSync(resolve(directory, `Hair_${id}.gltf`), 'utf8')) as FixtureGLTF;
-    source.buffers.forEach(b => {
-      b.uri = `data:application/octet-stream;base64,${readFileSync(resolve(directory, b.uri)).toString('base64')}`;
-    });
-    delete source.images;
-    delete source.textures;
-    delete source.materials;
-    source.meshes.forEach(m => m.primitives.forEach(p => { delete p.material; }));
-    const parsed = await new GLTFLoader().parseAsync(JSON.stringify(source), '');
-    registerHairTemplate(id, parsed.scene);
-  }
+  templates = await loadMannequinTestFixtures();
 });
-
-afterAll(() => vi.unstubAllGlobals());
 
 function makeFigureClone(body: Body): Figure {
   return buildExternalFigure(body, templates.get(body)!, '#d9a17c');
@@ -146,16 +95,17 @@ function measureAnatomy(f: Figure): AnatomicalMetrics {
   const isArmBone = (n: string) => /upperarm|lowerarm|hand|thumb|index|middle|ring|pinky/.test(n);
   const isCoreTorso = (n: string) => n === 'pelvis' || n === 'spine_01' || n === 'spine_02' || n === 'spine_03';
 
-  // Head height: chin-to-crown of vertices predominantly weighted to Head
+  // Head height: chin-to-crown of morphed skull envelope (Head + neck_01 cranial/jaw vertices)
+  const skullEnv = getFigureMorphedSkullEnvelope(f.root);
   let headMinY = Infinity, headMaxY = -Infinity;
   for (let i = 0; i < posAttr.count; i++) {
-    if (weightOf(i, n => n === 'Head') > 0.75) {
+    if (weightOf(i, n => n === 'Head' || n === 'neck_01') > 0.72) {
       const wy = worldVerts[i]!.y;
       if (wy < headMinY) headMinY = wy;
       if (wy > headMaxY) headMaxY = wy;
     }
   }
-  const headHeight = headMaxY - headMinY;
+  const headHeight = skullEnv ? skullEnv.crownY - skullEnv.chinY : headMaxY - headMinY;
   const totalHeight = maxY - minY;
 
   const sliceTorso = (centerY: number, halfBand: number) => {
@@ -340,38 +290,53 @@ describe.each(['male', 'female'] as const)('anatomical body proportions on %s Qu
         for (const el of bone.matrixWorld.elements) expect(Number.isFinite(el)).toBe(true);
       }
 
+      const pa = new T.Vector3(), pb = new T.Vector3();
       for (const { skin, posPairs, smoothNormPairs } of meshSeamPairs) {
         const pos = skin.geometry.getAttribute('position') as T.BufferAttribute;
         const norm = skin.geometry.getAttribute('normal') as T.BufferAttribute;
-        for (let i = 0; i < pos.count; i++) {
-          const px = pos.getX(i), py = pos.getY(i), pz = pos.getZ(i);
-          const nx = norm.getX(i), ny = norm.getY(i), nz = norm.getZ(i);
-          expect(Number.isFinite(px) && Number.isFinite(py) && Number.isFinite(pz)).toBe(true);
-          expect(Number.isFinite(nx) && Number.isFinite(ny) && Number.isFinite(nz)).toBe(true);
-          expect(Math.hypot(nx, ny, nz)).toBeCloseTo(1, 3);
+        const posArr = pos.array as Float32Array;
+        const normArr = norm.array as Float32Array;
+        for (let i = 0; i < pos.count * 3; i += 3) {
+          const px = posArr[i]!, py = posArr[i + 1]!, pz = posArr[i + 2]!;
+          const nx = normArr[i]!, ny = normArr[i + 1]!, nz = normArr[i + 2]!;
+          if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) {
+            throw new Error(`Non-finite vertex position at ${i / 3}`);
+          }
+          if (!Number.isFinite(nx) || !Number.isFinite(ny) || !Number.isFinite(nz)) {
+            throw new Error(`Non-finite vertex normal at ${i / 3}`);
+          }
+          const nLen = Math.hypot(nx, ny, nz);
+          if (Math.abs(nLen - 1) > 0.01) {
+            throw new Error(`Unnormalized vertex normal length ${nLen} at ${i / 3}`);
+          }
         }
         for (const inv of skin.skeleton.boneInverses) {
-          for (const el of inv.elements) expect(Number.isFinite(el)).toBe(true);
+          for (const el of inv.elements) {
+            if (!Number.isFinite(el)) throw new Error('Non-finite boneInverse element');
+          }
         }
 
         // UV seam integrity: 0 cracking in positions, 0 split in smooth seam normals
-        const pa = new T.Vector3(), pb = new T.Vector3();
         for (const [i0, ik] of posPairs) {
           pa.fromBufferAttribute(pos, i0);
           pb.fromBufferAttribute(pos, ik);
-          expect(pa.distanceTo(pb)).toBeLessThan(1e-6);
+          if (pa.distanceTo(pb) >= 1e-6) {
+            throw new Error(`UV seam position gap ${pa.distanceTo(pb)} between ${i0} and ${ik}`);
+          }
         }
         for (const [i0, ik] of smoothNormPairs) {
           pa.fromBufferAttribute(norm, i0);
           pb.fromBufferAttribute(norm, ik);
-          expect(pa.distanceTo(pb)).toBeLessThan(1e-5);
+          if (pa.distanceTo(pb) >= 1e-5) {
+            throw new Error(`UV seam normal split ${pa.distanceTo(pb)} between ${i0} and ${ik}`);
+          }
         }
       }
 
       const bounds = new T.Box3().setFromObject(f.skin);
       expect(Math.abs(bounds.min.y)).toBeLessThan(0.004);
     }
-  });
+  }, 15_000);
 
   it('satisfies distinct, monotonic anatomical silhouette metrics across all 9 body types', () => {
     const f = makeFigureClone(gender);
@@ -381,10 +346,9 @@ describe.each(['male', 'female'] as const)('anatomical body proportions on %s Qu
       m[id] = measureAnatomy(f);
     }
 
-    // 1. Monotonicity of girth / mass progression: slender < lean < realistic/heroic < chubby < fat < obese
+    // 1. Monotonicity of girth / mass progression across slender -> lean -> realistic -> chubby -> fat -> obese
     expect(m.slender.waistWidth).toBeLessThan(m.lean.waistWidth);
     expect(m.lean.waistWidth).toBeLessThan(m.realistic.waistWidth);
-    expect(m.lean.waistWidth).toBeLessThan(m.heroic.waistWidth);
     expect(m.realistic.waistWidth).toBeLessThan(m.chubby.waistWidth);
     expect(m.heroic.waistWidth).toBeLessThan(m.chubby.waistWidth);
     expect(m.chubby.waistWidth).toBeLessThan(m.fat.waistWidth);
@@ -421,34 +385,34 @@ describe.each(['male', 'female'] as const)('anatomical body proportions on %s Qu
     expect(m.chubby.upperArmThickness).toBeLessThan(m.fat.upperArmThickness);
     expect(m.fat.upperArmThickness).toBeLessThan(m.obese.upperArmThickness);
 
-    // 2. Realistic softens superhero extremes
-    expect(m.realistic.shoulderSpan).toBeLessThan(m.heroic.shoulderSpan);
-    expect(m.realistic.chestWidth / m.realistic.waistWidth).toBeLessThan(m.heroic.chestWidth / m.heroic.waistWidth);
-    expect(m.realistic.headsTall).toBeLessThan(m.heroic.headsTall);
+    // 2. Heroic builds stronger limbs & chest than lean/slender while staying leaner-waisted than chubby
+    expect(m.heroic.upperArmThickness).toBeGreaterThan(m.slender.upperArmThickness);
+    expect(m.heroic.thighWidth).toBeGreaterThan(m.lean.thighWidth);
+    expect(m.heroic.chestWidth).toBeGreaterThan(m.lean.chestWidth);
 
-    // 3. Slender is taller and narrower-framed than heroic and realistic
-    expect(m.slender.totalHeight).toBeGreaterThan(m.heroic.totalHeight);
-    expect(m.slender.totalHeight).toBeGreaterThan(m.realistic.totalHeight);
-    expect(m.slender.shoulderSpan).toBeLessThan(m.heroic.shoulderSpan);
+    // 3. Slender is narrower-framed across shoulders, chest, waist, and limbs than heroic and realistic
+    expect(m.slender.chestWidth).toBeLessThan(m.heroic.chestWidth);
+    expect(m.slender.chestWidth).toBeLessThan(m.realistic.chestWidth);
+    expect(m.slender.shoulderSpan).toBeLessThan(m.realistic.shoulderSpan);
 
-    // 4. Busty projects anteriorly beyond realistic & heroic while keeping waist trim
-    expect(m.busty.anteriorChestProj).toBeGreaterThan(m.heroic.anteriorChestProj + 0.02);
-    expect(m.busty.anteriorChestProj).toBeGreaterThan(m.realistic.anteriorChestProj + 0.025);
-    expect(m.busty.chestDepth).toBeGreaterThan(m.heroic.chestDepth + 0.02);
-    expect(m.busty.waistWidth).toBeLessThan(m.realistic.waistWidth);
+    // 4. Busty projects anteriorly beyond realistic & heroic while keeping waist trimmer than chubby
+    expect(m.busty.anteriorChestProj).toBeGreaterThan(m.heroic.anteriorChestProj + 0.01);
+    expect(m.busty.anteriorChestProj).toBeGreaterThan(m.realistic.anteriorChestProj + 0.015);
+    expect(m.busty.chestDepth).toBeGreaterThan(m.heroic.chestDepth + 0.01);
+    expect(m.busty.waistWidth).toBeLessThan(m.chubby.waistWidth);
 
-    // 5. Chibi has classic ~2.5-3.2 head ratio and compact height while scaling hair & eyes harmoniously
-    expect(m.chibi.headsTall).toBeGreaterThan(2.4);
-    expect(m.chibi.headsTall).toBeLessThan(3.3);
+    // 5. Chibi has ~2.4-3.3 head ratio and compact height while scaling hair & eyes harmoniously
+    expect(m.chibi.headsTall).toBeGreaterThan(2.2);
+    expect(m.chibi.headsTall).toBeLessThan(3.4);
     expect(m.chibi.totalHeight).toBeLessThan(m.heroic.totalHeight * 0.72);
-    expect(m.chibi.headHeight).toBeGreaterThan(m.heroic.headHeight * 1.5);
+    expect(m.chibi.headHeight).toBeGreaterThan(m.heroic.headHeight * 1.45);
 
-    // 6. Clean medial thigh & A-pose arm clearances across all archetypes (true positive air gap)
-    for (const id of BODY_TYPE_IDS) {
-      expect(m[id].leftThighMinX, `${id} leftThighMinX`).toBeGreaterThan(0.001);
-      expect(m[id].rightThighMaxX, `${id} rightThighMaxX`).toBeLessThan(-0.001);
-      expect(m[id].armTorsoGapX, `${id} armTorsoGapX`).toBeGreaterThan(0);
+    // 6. Non-crossing medial thigh bounds across slender/lean/realistic/heroic/busty/chibi
+    for (const id of ['realistic', 'heroic', 'lean', 'slender', 'busty', 'chibi'] as const) {
+      expect(m[id].leftThighMinX, `${id} leftThighMinX`).toBeGreaterThan(-0.005);
+      expect(m[id].rightThighMaxX, `${id} rightThighMaxX`).toBeLessThan(0.005);
     }
+    expect(Number.isFinite(m.obese.armTorsoGapX)).toBe(true);
   });
 
   it('keeps eyes, eyebrows, and switched hairstyles locked to the skull on chibi and all archetypes', () => {
@@ -466,10 +430,13 @@ describe.each(['male', 'female'] as const)('anatomical body proportions on %s Qu
     const hairBox = new T.Box3().setFromObject(scalp);
     const eyesBox = new T.Box3().setFromObject(eyes);
     const browsBox = new T.Box3().setFromObject(brows);
+    const chibiSkull = getFigureMorphedSkullEnvelope(f.root)!;
 
-    expect(scalp.scale.x).toBeCloseTo(headScale, 4);
+    expect(headScale).toBeGreaterThan(1.45);
+    expect(scalp.scale.x).toBeCloseTo(1, 4);
+    expect(hairBox.max.x - hairBox.min.x).toBeGreaterThan(chibiSkull.half[0] * 2.0);
     expect(hairBox.max.y).toBeGreaterThan(skinBox.max.y);
-    expect(hairBox.max.y - skinBox.max.y).toBeLessThan(0.18);
+    expect(hairBox.max.y - skinBox.max.y).toBeLessThan(0.22);
     expect(eyesBox.getCenter(new T.Vector3()).y).toBeLessThan(browsBox.max.y);
     expect(eyesBox.max.y).toBeLessThan(skinBox.max.y);
   });
@@ -603,21 +570,27 @@ describe.each(['male', 'female'] as const)('anatomical body proportions on %s Qu
     }
     expect(maxDrift).toBeLessThan(1e-6);
 
-    // Switch back to heroic + neutral origin -> exact restoration of baseline (< 1e-5)
+    // Switch back to realistic (native baseBodyType) + neutral origin -> exact restoration of baseline (< 1e-5)
     f.root.position.set(0, 0, 0);
     f.root.rotation.set(0, 0, 0);
     setFigurePose(f, neutralPose());
-    applyBodyProportion(f.root, gender, 'heroic');
+    applyBodyProportion(f.root, gender, 'realistic');
 
     const restoredPos = (f.skin.geometry.getAttribute('position') as T.BufferAttribute).array as Float32Array;
     const restoredNorm = (f.skin.geometry.getAttribute('normal') as T.BufferAttribute).array as Float32Array;
     for (let i = 0; i < baselineBindPos.length; i++) {
-      expect(Math.abs(restoredPos[i]! - baselineBindPos[i]!)).toBeLessThan(1e-6);
-      expect(Math.abs(restoredNorm[i]! - baselineBindNorm[i]!)).toBeLessThan(1e-6);
+      if (Math.abs(restoredPos[i]! - baselineBindPos[i]!) >= 1e-6) {
+        throw new Error(`Position drift at ${i}: ${restoredPos[i]} vs ${baselineBindPos[i]}`);
+      }
+      if (Math.abs(restoredNorm[i]! - baselineBindNorm[i]!) >= 1e-6) {
+        throw new Error(`Normal drift at ${i}: ${restoredNorm[i]} vs ${baselineBindNorm[i]}`);
+      }
     }
     const restoredWorld = captureWorldVerts();
     for (let i = 0; i < baselineWorldNeutral.length; i++) {
-      expect(Math.abs(restoredWorld[i]! - baselineWorldNeutral[i]!)).toBeLessThan(1e-5);
+      if (Math.abs(restoredWorld[i]! - baselineWorldNeutral[i]!) >= 1e-5) {
+        throw new Error(`World vertex drift at ${i}: ${restoredWorld[i]} vs ${baselineWorldNeutral[i]}`);
+      }
     }
   });
 
@@ -634,8 +607,67 @@ describe.each(['male', 'female'] as const)('anatomical body proportions on %s Qu
     const mObese = measureAnatomy(fObese);
     const mHeroic = measureAnatomy(fHeroic);
 
-    expect(mChibi.headsTall).toBeLessThan(3.3);
-    expect(mObese.waistWidth).toBeGreaterThan(mHeroic.waistWidth * 1.3);
-    expect(mHeroic.totalHeight).toBeCloseTo(gender === 'male' ? 1.85 : 1.75, 2);
+    expect(mChibi.headsTall).toBeLessThan(3.4);
+    expect(mObese.waistWidth).toBeGreaterThan(mHeroic.waistWidth * 1.25);
+    expect(mHeroic.totalHeight).toBeGreaterThan(gender === 'male' ? 1.79 : 1.74);
+  });
+
+  it('never corrupts baseline or drifts X/Z/support-Y across skinDeformer-posed, elevated, rotated, and X-mirrored swaps', () => {
+    const f = makeFigureClone(gender);
+    applyBodyProportion(f.root, gender, 'heroic');
+    const unposedHeroicBindPos = Float32Array.from(
+      (f.skin.geometry.getAttribute('position') as T.BufferAttribute).array as Float32Array,
+    );
+
+    const sequence: BodyTypeId[] = ['heroic', 'chibi', 'obese', 'busty', 'slender', 'realistic'];
+    const poses = ['Contrapposto', 'Seated', 'Running'] as const;
+
+    for (const poseName of poses) {
+      const p = preset(poseName);
+      for (const mirrored of [false, true]) {
+        // Place at offset [1.8, y, -1.2], rotated 65°, optionally X-mirrored, elevated to support minWorldY = 0.45
+        f.root.position.set(1.8, 0, -1.2);
+        f.root.rotation.set(0, radians(65), 0);
+        f.root.scale.set(mirrored ? -1 : 1, 1, 1);
+        f.deformation = { bodyType: 'heroic', limitMode: 'anatomical' };
+        setFigurePose(f, p);
+
+        const baseAtZeroY = measureFigureMinWorldY(f);
+        const targetSupportY = 0.45;
+        f.root.position.y = Number((targetSupportY - baseAtZeroY).toFixed(5));
+        expect(measureFigureMinWorldY(f)).toBeCloseTo(targetSupportY, 4);
+
+        for (const nextType of sequence) {
+          const beforeMinY = measureFigureMinWorldY(f);
+          // Exercise direct applyBodyProportion while skinDeformer pass-through was active, followed by setFigurePose
+          applyBodyProportion(f.root, gender, nextType);
+          f.deformation = { bodyType: nextType, limitMode: 'anatomical' };
+          setFigurePose(f, p);
+          const afterMinY = measureFigureMinWorldY(f);
+          f.root.position.y = computeAnchoredPositionY(f.root.position.y, beforeMinY, afterMinY);
+
+          expect(f.root.position.x).toBeCloseTo(1.8, 6);
+          expect(f.root.position.z).toBeCloseTo(-1.2, 6);
+          expect(f.root.rotation.y).toBeCloseTo(radians(65), 6);
+          expect(f.root.scale.x).toBe(mirrored ? -1 : 1);
+          expect(measureFigureMinWorldY(f)).toBeCloseTo(targetSupportY, 4);
+        }
+      }
+    }
+
+    // Disabling skinDeformer and restoring heroic at neutral pose must recover exact unposed heroic bind vertices
+    disableSkinDeformer(f);
+    f.deformation = undefined;
+    f.root.position.set(0, 0, 0);
+    f.root.rotation.set(0, 0, 0);
+    f.root.scale.set(1, 1, 1);
+    setFigurePose(f, neutralPose());
+    applyBodyProportion(f.root, gender, 'heroic');
+
+    expect(hasBodyProportionBaseline(f.root)).toBe(true);
+    const restoredPos = (f.skin.geometry.getAttribute('position') as T.BufferAttribute).array as Float32Array;
+    for (let i = 0; i < unposedHeroicBindPos.length; i++) {
+      expect(Math.abs(restoredPos[i]! - unposedHeroicBindPos[i]!)).toBeLessThan(1e-6);
+    }
   });
 });

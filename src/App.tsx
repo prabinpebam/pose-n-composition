@@ -21,15 +21,17 @@ import {
   Vector3Field,
   type SelectOption,
 } from './components/ui';
-import { Studio } from './engine';
+import { computeStudioAnchoredFigureY, Studio, syncStudioScene } from './engine';
 import { loadExternalFigures } from './external-rig';
 import { BODY_TYPES, DEFAULT_BODY_TYPE, isBodyTypeId, type BodyTypeId } from './bodyProportions';
 import { clampPoseToAnatomicalLimits } from './skinDeformer';
 import { defaultHairStyle, HAIR_STYLE_LABELS, HAIR_STYLES } from './hair';
 import {
+  applyChibiDefaultRenderStyle,
   applyPose,
   clone,
   copyPoseNodes,
+  createDefaultScene,
   createItem,
   DEFAULT_RENDER_STYLE,
   DEFAULT_HAIR_COLOR,
@@ -50,7 +52,9 @@ import {
   radians,
   RENDER_MODES,
   selectionCentroid,
+  swapItemBodyKind,
   validatePortable,
+  type Body,
   type HairStyleId,
   type Item,
   type Joint,
@@ -84,7 +88,22 @@ const ANIM_CATEGORIES: readonly AnimationCycleCategory[] = [
   'Stealth & Ground',
   'Action & Athletic',
 ];
-const BODY_OPTIONS: SelectOption[] = BODY_TYPES.map(type => ({ value: type.id, label: type.label, meta: type.description }));
+const BODY_BADGES: Record<string, string> = {
+  realistic: 'Natural',
+  heroic: 'Athletic',
+  lean: 'Toned',
+  slender: 'Slim',
+  busty: 'Full chest',
+  chubby: 'Soft',
+  fat: 'Heavy',
+  obese: 'Very heavy',
+  chibi: '2.5-head anime',
+};
+const BODY_OPTIONS: SelectOption[] = BODY_TYPES.map(type => ({
+  value: type.id,
+  label: type.label,
+  meta: BODY_BADGES[type.id] ?? type.label,
+}));
 
 const SHADING_ITEMS = RENDER_MODES.map((value, index) => ({
   value, label: value[0].toUpperCase() + value.slice(1),
@@ -349,18 +368,55 @@ export function App() {
   );
 
   const item = doc.items.find(i => i.id === selected);
-  const editItem = (patch: Partial<Item>) =>
+  const editItem = (patch: Partial<Item>) => {
+    if ((patch.bodyType !== undefined || patch.anatomicalLimits !== undefined) && previewStateRef.current.animPreviewing) {
+      setAnimPlaying(false);
+      setAnimPreviewing(false);
+    }
     update(next => {
       const i = next.items.find(i => i.id === selected);
       if (i) {
+        const needsAnchor =
+          isBody(i.kind) &&
+          Boolean(i.pose) &&
+          (patch.bodyType !== undefined || patch.anatomicalLimits !== undefined);
         Object.assign(i, patch);
-        if (isBody(i.kind) && i.pose && (patch.bodyType !== undefined || patch.anatomicalLimits !== undefined)) {
+        if (needsAnchor && isBody(i.kind) && i.pose) {
           i.pose = clampPoseToAnatomicalLimits(i.pose, i.anatomicalLimits === false ? 'free' : 'anatomical');
-          const y = engine.current?.groundPoseY(i.id, i.pose, i);
-          if (y !== null && y !== undefined) i.position[1] = y;
+          const y = computeStudioAnchoredFigureY(engine.current, i.id, {
+            kind: i.kind,
+            bodyType: i.bodyType,
+            anatomicalLimits: i.anatomicalLimits,
+            pose: i.pose,
+          });
+          if (y !== null && y !== undefined) i.position = [i.position[0], y, i.position[2]];
+        }
+        if (isBody(i.kind) && patch.bodyType === 'chibi') {
+          applyChibiDefaultRenderStyle(next, patch.bodyType);
         }
       }
     });
+  };
+  const swapBaseFigure = (nextKind: Body) => {
+    const currentItem = current.current.items.find(i => i.id === selected);
+    if (!currentItem || !isBody(currentItem.kind) || currentItem.kind === nextKind) return;
+    if (previewStateRef.current.animPreviewing) {
+      setAnimPlaying(false);
+      setAnimPreviewing(false);
+    }
+    update(next => {
+      const idx = next.items.findIndex(i => i.id === selected);
+      const target = idx >= 0 ? next.items[idx] : undefined;
+      if (!target || !isBody(target.kind)) return;
+      const anchoredY = computeStudioAnchoredFigureY(engine.current, target.id, {
+        kind: nextKind,
+        bodyType: target.bodyType,
+        anatomicalLimits: target.anatomicalLimits,
+        pose: target.pose,
+      });
+      next.items[idx] = swapItemBodyKind(target, nextKind, anchoredY ?? target.position[1]);
+    });
+  };
   const editCamera = (patch: Partial<SceneState['camera']>) => update(next => Object.assign(next.camera, patch));
   const renderStyle = { ...DEFAULT_RENDER_STYLE, ...doc.renderStyle };
   const editRenderStyle = (patch: Partial<RenderStyleState>) => update(next => {
@@ -410,6 +466,7 @@ export function App() {
       const resolvedJoint =
         resolvedItem && isBody(resolvedItem.kind) ? liveSettings.current.joint : null;
       if (resolvedSelected !== curSelected) setSelected(resolvedSelected);
+      setSelectedIds(resolvedSelected ? [resolvedSelected] : []);
       if (resolvedJoint !== liveSettings.current.joint) setJoint(resolvedJoint);
       setDoc(next);
       historyUpdate(t => t + 1);
@@ -420,21 +477,23 @@ export function App() {
     [buildDraft],
   );
 
-  const resetStudio = useCallback(() => {
+  const startNewScene = useCallback(() => {
     engine.current?.cancelCameraGesture();
     cameraGestureBaseRef.current = null;
     isDraggingCameraRef.current = false;
     setAnimPlaying(false);
     setAnimPreviewing(false);
-    const fresh = initialScene();
+    const fresh = createDefaultScene();
     const nextSelected = fresh.items[0]?.id ?? null;
     const resetOrbit = clone(DEFAULT_ORBIT_VIEW);
     orbitViewRef.current = resetOrbit;
     engine.current?.setOrbitView(resetOrbit.position, resetOrbit.target);
     setSelected(nextSelected);
+    setSelectedIds(nextSelected ? [nextSelected] : []);
     setJoint(null);
     setView(false);
     setMode('translate');
+    setSaveName('My study');
     commit(fresh, {
       editorCamera: resetOrbit,
       selectedId: nextSelected,
@@ -442,7 +501,7 @@ export function App() {
       cameraView: false,
       transformMode: 'translate',
     });
-    notify('Studio reset to default scene. Undo restores your previous work.');
+    notify('Started new scene — Undo to restore');
   }, [commit, notify]);
 
   const removeItemById = useCallback(
@@ -699,7 +758,7 @@ export function App() {
   }, [buildDraft]);
 
   useEffect(() => {
-    engine.current?.sync(doc);
+    syncStudioScene(engine.current, doc);
   }, [doc]);
   useEffect(() => {
     engine.current?.select(selected, joint, selection);
@@ -894,6 +953,9 @@ export function App() {
     const added = createItem(kind, doc.items.filter(i => i.kind === kind).length, newBodyType);
     const next = clone(current.current);
     next.items.push(added);
+    if (isBody(kind)) {
+      applyChibiDefaultRenderStyle(next, added.bodyType);
+    }
     select(added.id, null);
     setView(false);
     commit(next, { selectedId: added.id, selectedJoint: null, cameraView: false });
@@ -923,7 +985,9 @@ export function App() {
     if (valid.type === 'scene') {
       const nextSelected = valid.items[0]?.id ?? null;
       setSelected(nextSelected);
+      setSelectedIds(nextSelected ? [nextSelected] : []);
       setJoint(null);
+      setSaveName(valid.name);
       commit(valid, { selectedId: nextSelected, selectedJoint: null });
       notify('Scene loaded. Undo returns to the previous scene.');
     } else {
@@ -1102,11 +1166,11 @@ export function App() {
           </button>
           <button
             type="button"
-            onClick={resetStudio}
+            onClick={startNewScene}
             disabled={loading || loadError !== null}
-            title="Reset to default studio scene (Undoable)"
+            title="Start a fresh studio scene (Undoable)"
           >
-            Reset
+            {Icons.plus} New scene
           </button>
           <button type="button" onClick={() => setTab('library')}>
             Library
@@ -1342,8 +1406,30 @@ export function App() {
                       {isBody(item.kind) && (
                         <>
                           <div className="select-field">
+                            <span className="field-label">Base figure</span>
+                            <SegmentedControl
+                              ariaLabel="Base figure"
+                              fullWidth
+                              value={item.kind}
+                              items={[
+                                { value: 'female', label: 'Female' },
+                                { value: 'male', label: 'Male' },
+                              ]}
+                              onChange={nextKind => swapBaseFigure(nextKind)}
+                            />
+                          </div>
+                          <div className="select-field">
                             <span className="field-label">Body proportion</span>
-                            <SelectDropdown ariaLabel="Body proportion" value={item.bodyType ?? DEFAULT_BODY_TYPE} options={BODY_OPTIONS} onChange={value => { if (isBodyTypeId(value)) editItem({ bodyType: value }); }} />
+                            <SelectDropdown
+                              ariaLabel="Body proportion"
+                              value={item.bodyType ?? DEFAULT_BODY_TYPE}
+                              options={BODY_OPTIONS}
+                              onChange={value => {
+                                if (isBodyTypeId(value) && value !== (item.bodyType ?? DEFAULT_BODY_TYPE)) {
+                                  editItem({ bodyType: value });
+                                }
+                              }}
+                            />
                           </div>
                           <ColorField
                             label="Outfit / dress color"
@@ -1863,6 +1949,15 @@ export function App() {
                   <div className="eyebrow">LIBRARY · LOCAL & PORTABLE</div>
                   <h2>Save study</h2>
                   <p className="muted">Stored privately in this browser (IndexedDB). Saving with an existing name updates that entry.</p>
+                  <button
+                    type="button"
+                    className="full-btn"
+                    onClick={startNewScene}
+                    disabled={loading || loadError !== null}
+                    title="Start a fresh studio scene (Undoable)"
+                  >
+                    {Icons.plus} New scene
+                  </button>
                   <label className="text-field">
                     <span className="field-label">Study name</span>
                     <input
@@ -2037,7 +2132,7 @@ export function App() {
               <h3>03 / Keep your work</h3>
               <p>
                 Every viewport drag, camera move, and inspector edit autosaves immediately to IndexedDB and reloads
-                automatically — use <strong>Reset</strong> anytime to return to a fresh stage (with Undo). Export or
+                automatically — use <strong>New scene</strong> anytime to return to a fresh stage (with Undo). Export or
                 import portable <code>.pose.json</code> files directly from a figure&rsquo;s Pose panel, or manage full
                 scenes in Library.
               </p>
