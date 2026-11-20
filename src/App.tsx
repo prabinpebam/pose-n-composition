@@ -23,6 +23,7 @@ import {
 } from './components/ui';
 import { computeStudioAnchoredFigureY, Studio, syncStudioScene } from './engine';
 import { loadExternalFigures } from './external-rig';
+import { CHARACTERS, MODEL_IDS, defaultModelId, isModelId, type ModelId } from './characterCatalog';
 import { BODY_TYPES, DEFAULT_BODY_TYPE, isBodyTypeId, type BodyTypeId } from './bodyProportions';
 import { clampPoseToAnatomicalLimits } from './skinDeformer';
 import { defaultHairStyle, HAIR_STYLE_LABELS, HAIR_STYLES } from './hair';
@@ -397,9 +398,10 @@ export function App() {
       }
     });
   };
-  const swapBaseFigure = (nextKind: Body) => {
+  const swapBaseFigure = (modelId: ModelId) => {
+    const nextKind = CHARACTERS[modelId].body;
     const currentItem = current.current.items.find(i => i.id === selected);
-    if (!currentItem || !isBody(currentItem.kind) || currentItem.kind === nextKind) return;
+    if (!currentItem || !isBody(currentItem.kind) || (currentItem.modelId ?? defaultModelId(currentItem.kind)) === modelId) return;
     if (previewStateRef.current.animPreviewing) {
       setAnimPlaying(false);
       setAnimPreviewing(false);
@@ -410,11 +412,12 @@ export function App() {
       if (!target || !isBody(target.kind)) return;
       const anchoredY = computeStudioAnchoredFigureY(engine.current, target.id, {
         kind: nextKind,
+        modelId,
         bodyType: target.bodyType,
         anatomicalLimits: target.anatomicalLimits,
         pose: target.pose,
       });
-      next.items[idx] = swapItemBodyKind(target, nextKind, anchoredY ?? target.position[1]);
+      next.items[idx] = swapItemBodyKind(target, nextKind, anchoredY ?? target.position[1], modelId);
     });
   };
   const editCamera = (patch: Partial<SceneState['camera']>) => update(next => Object.assign(next.camera, patch));
@@ -941,7 +944,7 @@ export function App() {
     }
   };
 
-  const add = (kind: Item['kind']) => {
+  const add = (kind: Item['kind'], modelId?: ModelId) => {
     if (doc.items.length >= 64) {
       report(new Error('Scene limit: 64 objects.'));
       return;
@@ -950,7 +953,12 @@ export function App() {
       report(new Error('Scene limit: 8 lights.'));
       return;
     }
-    const added = createItem(kind, doc.items.filter(i => i.kind === kind).length, newBodyType);
+    const index = doc.items.filter(i => i.kind === kind).length;
+    const added = createItem(kind, index, modelId ? DEFAULT_BODY_TYPE : newBodyType);
+    if (modelId) {
+      added.modelId = modelId;
+      added.name = `${CHARACTERS[modelId].label} ${index + 1}`;
+    }
     const next = clone(current.current);
     next.items.push(added);
     if (isBody(kind)) {
@@ -1215,6 +1223,9 @@ export function App() {
                 </button>
               </div>
               <div className="stack-gap">
+                <SelectDropdown ariaLabel="Add character" value="" actionMenu leadingIcon={Icons.plus}
+                  placeholder="Add rigged character…" options={MODEL_IDS.filter(id => CHARACTERS[id].source).map(id => ({value: id, label: CHARACTERS[id].label}))}
+                  onChange={id => { if (isModelId(id)) add(CHARACTERS[id].body, id); }} />
                 <SelectDropdown
                   id="add-prop"
                   ariaLabel="Add prop"
@@ -1242,7 +1253,7 @@ export function App() {
                 <ul className="list-stack" aria-label="Object list">
                   {doc.items.map(i => {
                     const subtitle = isBody(i.kind)
-                      ? `${label(i.kind)} · ${HAIR_STYLE_LABELS[i.hairStyle ?? defaultHairStyle(i.kind)]}`
+                      ? `${CHARACTERS[i.modelId ?? defaultModelId(i.kind)].label} · ${HAIR_STYLE_LABELS[i.hairStyle ?? defaultHairStyle(i.kind)]}`
                       : i.kind === 'light'
                         ? `Spot light · ${Math.round(i.intensity ?? 30)} lx`
                         : `${label(i.kind)} prop`;
@@ -1407,18 +1418,13 @@ export function App() {
                         <>
                           <div className="select-field">
                             <span className="field-label">Base figure</span>
-                            <SegmentedControl
-                              ariaLabel="Base figure"
-                              fullWidth
-                              value={item.kind}
-                              items={[
-                                { value: 'female', label: 'Female' },
-                                { value: 'male', label: 'Male' },
-                              ]}
-                              onChange={nextKind => swapBaseFigure(nextKind)}
+                            <SelectDropdown ariaLabel="Base figure"
+                              value={item.modelId ?? defaultModelId(item.kind)}
+                              options={MODEL_IDS.map(id => ({value: id, label: CHARACTERS[id].label}))}
+                              onChange={id => { if (isModelId(id)) swapBaseFigure(id); }}
                             />
                           </div>
-                          <div className="select-field">
+                          {!CHARACTERS[item.modelId ?? defaultModelId(item.kind)].source && <div className="select-field">
                             <span className="field-label">Body proportion</span>
                             <SelectDropdown
                               ariaLabel="Body proportion"
@@ -1430,7 +1436,7 @@ export function App() {
                                 }
                               }}
                             />
-                          </div>
+                          </div>}
                           <ColorField
                             label="Outfit / dress color"
                             value={item.outfitColor ?? defaultOutfitColor(item.kind)}

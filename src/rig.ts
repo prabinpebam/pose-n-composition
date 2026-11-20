@@ -6,6 +6,8 @@ import type { BodyTypeId } from './bodyProportions';
 import { applyExtremePoseDeformer, clampPoseToAnatomicalLimits, type PoseLimitMode } from './skinDeformer';
 
 export interface Figure {
+  modelId?: import('./characterCatalog').ModelId;
+  nativeRig?: boolean;
   body?: Body;
   root: T.Group; skin: T.SkinnedMesh; skins: T.SkinnedMesh[]; bones: Record<Joint, T.Bone>;
   restRotations: Record<Joint, T.Quaternion>; rotationBases: Record<Joint, T.Quaternion>;
@@ -140,7 +142,7 @@ export function measureFigureMinWorldY(figure: Figure): number {
   const isUpright = Math.abs(me[1]!) < 1e-7 && Math.abs(me[9]!) < 1e-7 && me[5]! > 0;
   if (
     isUpright &&
-    figure.deformation &&
+    !figure.nativeRig && figure.deformation &&
     figure.deformation.bodyType !== 'chibi' &&
     skin.geometry.boundingBox
   ) {
@@ -169,7 +171,7 @@ export function computeAnchoredPositionY(
 }
 
 export function setFigurePose(figure: Figure, pose: Pose): void {
-  if (figure.deformation) {
+  if (figure.deformation && !figure.nativeRig) {
     const effective = clampPoseToAnatomicalLimits(pose, figure.deformation.limitMode);
     const preRev = (figure.root.userData.__bodyProportionRevision as number) || 0;
     const preKey = JSON.stringify([figure.deformation, effective, preRev]);
@@ -196,9 +198,10 @@ export function setFigurePose(figure: Figure, pose: Pose): void {
     figure.skins.forEach(skin => { skin.skeleton.update(); skin.computeBoundingBox(); skin.computeBoundingSphere(); });
     return;
   }
+  const effective = figure.deformation ? clampPoseToAnatomicalLimits(pose, figure.deformation.limitMode) : pose;
   JOINTS.forEach(j => {
     const basis = figure.rotationBases[j];
-    const delta = new T.Quaternion().setFromEuler(new T.Euler(...pose[j]));
+    const delta = new T.Quaternion().setFromEuler(new T.Euler(...effective[j]));
     figure.bones[j].quaternion.copy(figure.restRotations[j]).multiply(basis).multiply(delta).multiply(basis.clone().invert());
   });
   figure.root.updateMatrixWorld(true);

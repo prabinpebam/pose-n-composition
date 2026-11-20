@@ -19,6 +19,8 @@ import {
   setMaterialMannequinMaps,
 } from './bodyProportions';
 import { setFigurePose, type Figure } from './rig';
+import { CHARACTERS, MODEL_IDS, defaultModelId, SOURCE_BONES, type ModelId } from './characterCatalog';
+export { SOURCE_BONES } from './characterCatalog';
 
 export interface NormalizedBodyOutfitResult {
   rgba: Uint8ClampedArray;
@@ -357,14 +359,7 @@ export function configureSkinAndOutfitMaterial(
   return outfitUniform;
 }
 
-export const SOURCE_BONES: Record<Joint, string> = {
-  hips: 'pelvis', spine: 'spine_01', chest: 'spine_03', neck: 'neck_01', head: 'Head',
-  leftShoulder: 'upperarm_l', leftElbow: 'lowerarm_l', leftWrist: 'hand_l',
-  rightShoulder: 'upperarm_r', rightElbow: 'lowerarm_r', rightWrist: 'hand_r',
-  leftHip: 'thigh_l', leftKnee: 'calf_l', leftAnkle: 'foot_l',
-  rightHip: 'thigh_r', rightKnee: 'calf_r', rightAnkle: 'foot_r',
-};
-const templates = new Map<Body, T.Group>();
+const templates = new Map<ModelId, T.Group>();
 const mannequinMaps = new Map<Body, { defaultMap: T.DataTexture; chibiMap: T.DataTexture }>();
 let loading: Promise<void> | null = null;
 
@@ -489,31 +484,32 @@ export function loadExternalFigures(): Promise<void> {
     loadHairTemplates(baseUrl),
     loadMannequinArchetypeBundle(baseUrl),
     loadMannequinRgbaTextures(baseUrl),
-    ...(['male', 'female'] as const).map(async body => {
-      if (templates.has(body)) return;
-      const name = body === 'male' ? 'Male' : 'Female';
-      const path = `${baseUrl}models/mannequin/Mannequin_${name}.glb`;
+    ...MODEL_IDS.map(async id => {
+      if (templates.has(id)) return;
+      const {path, label} = CHARACTERS[id];
       try {
-        const gltf = await loader.loadAsync(path);
-        templates.set(body, gltf.scene);
+        const gltf = await loader.loadAsync(`${baseUrl}${path}`);
+        templates.set(id, gltf.scene);
       } catch (error) {
-        throw new Error(`Could not load ${body} figure assets. Check the connection and retry. ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Could not load ${label}. Check the connection and retry. ${error instanceof Error ? error.message : String(error)}`);
       }
     }),
   ]).then(() => undefined).catch(error => { loading = null; throw error; });
   return loading;
 }
-export function makeExternalFigure(body: Body, color: string, outfitColor = defaultOutfitColor(body)): Figure {
-  const template = templates.get(body);
-  if (!template) throw new Error(`${body} figure assets are not loaded. Retry loading the studio.`);
-  return buildExternalFigure(body, template, color, outfitColor);
+export function makeExternalFigure(body: Body, color: string, outfitColor = defaultOutfitColor(body), id = defaultModelId(body)): Figure {
+  const template = templates.get(id);
+  if (!template || CHARACTERS[id].body !== body) throw new Error(`${id} is not loaded or incompatible with ${body}.`);
+  return buildExternalFigure(body, template, color, outfitColor, id);
 }
 export function buildExternalFigure(
   body: Body,
   template: T.Group,
   color: string,
   outfitColor = defaultOutfitColor(body),
+  modelId = defaultModelId(body),
 ): Figure {
+  const source = CHARACTERS[modelId].source;
   const root = new T.Group(), model = cloneSkeleton(template);
   root.add(model);
   const allBones = new Map<string, T.Bone>(), skins: T.SkinnedMesh[] = [];
@@ -537,17 +533,13 @@ export function buildExternalFigure(
   }
 
   const bones = Object.fromEntries(JOINTS.map(j => {
-    const bone = allBones.get(SOURCE_BONES[j]);
-    if (!bone) throw new Error(`The ${body} asset is missing required joint ${SOURCE_BONES[j]}.`);
+    const name = (source?.bones ?? SOURCE_BONES)[j];
+    const bone = allBones.get(name);
+    if (!bone) throw new Error(`The ${modelId} asset is missing required joint ${name}.`);
     return [j, bone];
   })) as Record<Joint, T.Bone>;
 
-  const isMannequin =
-    model.getObjectByName('Mannequin') != null ||
-    skins.some(s => {
-      const m = Array.isArray(s.material) ? s.material[0] : s.material;
-      return Boolean(m?.userData?.pncOutfitMask);
-    });
+  const isMannequin = !source;
 
   root.updateMatrixWorld(true);
   if (!isMannequin) {
@@ -556,7 +548,7 @@ export function buildExternalFigure(
     root.updateMatrixWorld(true);
     const bounds = new T.Box3().setFromObject(root), nativeHeight = bounds.max.y - bounds.min.y;
     if (!Number.isFinite(nativeHeight) || nativeHeight <= 0) throw new Error(`The ${body} asset has invalid dimensions.`);
-    model.scale.multiplyScalar((body === 'male' ? 1.85 : 1.75) / nativeHeight);
+    model.scale.multiplyScalar(source.height / nativeHeight);
     root.updateMatrixWorld(true);
     bounds.setFromObject(root);
     model.position.add(new T.Vector3(-(bounds.min.x + bounds.max.x) / 2, -bounds.min.y, -(bounds.min.z + bounds.max.z) / 2));
@@ -582,8 +574,12 @@ export function buildExternalFigure(
 
   const restRotations = Object.fromEntries(JOINTS.map(j => [j, bones[j].quaternion.clone()])) as Record<Joint, T.Quaternion>;
   const rotationBases = Object.fromEntries(JOINTS.map(j => [j, bones[j].getWorldQuaternion(new T.Quaternion()).invert()])) as Record<Joint, T.Quaternion>;
-  const skin = skins.reduce((a, b) => a.geometry.getAttribute('position').count > b.geometry.getAttribute('position').count ? a : b);
-  const tintMaterials = (Array.isArray(skin.material) ? skin.material : [skin.material]).filter((m): m is T.MeshStandardMaterial => m instanceof T.MeshStandardMaterial);
+  const skin = source ? skins.find(mesh => mesh.name === source.bodyMesh) :
+    skins.reduce((a, b) => a.geometry.getAttribute('position').count > b.geometry.getAttribute('position').count ? a : b);
+  if (!skin) throw new Error(`${modelId} is missing the mapped body mesh.`);
+  const tintMaterials = (Array.isArray(skin.material) ? skin.material : [skin.material]).filter((m): m is T.MeshStandardMaterial =>
+    m instanceof T.MeshStandardMaterial && (!source || m.name === source.maskedMaterial));
+  if (!tintMaterials.length) throw new Error(`${modelId} is missing the mapped skin/outfit material.`);
 
   if (isMannequin) {
     const maps = mannequinMaps.get(body);
@@ -599,7 +595,7 @@ export function buildExternalFigure(
 
   const outfitColorUniforms = tintMaterials.map(m => configureSkinAndOutfitMaterial(m, color, outfitColor));
   // The source's Eyebrows surface includes both brows and modeled eyelashes.
-  const brows = skins.find(s => s.name === 'Eyebrows');
+  const brows = skins.find(s => s.name === (source?.browMesh ?? 'Eyebrows'));
   if (!brows) throw new Error(`The ${body} asset is missing its eyebrows and eyelashes.`);
   const hairMaterials = (Array.isArray(brows.material) ? brows.material : [brows.material]).filter((m): m is T.MeshStandardMaterial => m instanceof T.MeshStandardMaterial);
   if (!hairMaterials.length) throw new Error(`The ${body} asset has no editable eyebrow material.`);
@@ -626,7 +622,7 @@ export function buildExternalFigure(
   }
   hairMaterials.push(scalp.material);
   const figure: Figure = {
-    body, root, skin, skins, bones, restRotations, rotationBases, tintMaterials, outfitColorUniforms, hairMaterials,
+    modelId, nativeRig: !!source, body, root, skin, skins, bones, restRotations, rotationBases, tintMaterials, outfitColorUniforms, hairMaterials,
     headFromNative, hairStyle: initialStyle,
   };
   figureRefs.set(root, figure);

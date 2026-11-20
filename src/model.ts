@@ -1,4 +1,5 @@
 import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
+import { CHARACTERS, defaultModelId, isModelId, type ModelId } from './characterCatalog';
 import { DEFAULT_BODY_TYPE, isBodyTypeId, type BodyTypeId } from './bodyProportions';
 
 export type Vec3 = [number, number, number];
@@ -36,7 +37,7 @@ export type PropKind = typeof PROP_KINDS[number];
 export interface Item {
   id: string; name: string; kind: Body | PropKind | 'light'; color: string;
   position: Vec3; rotation: Vec3; scale: Vec3; pose?: Pose; outfitColor?: string; hairColor?: string; hairStyle?: HairStyleId; intensity?: number; target?: Vec3;
-  bodyType?: BodyTypeId; anatomicalLimits?: boolean;
+  modelId?: ModelId; bodyType?: BodyTypeId; anatomicalLimits?: boolean;
 }
 export interface CameraState {
   position: Vec3; target: Vec3; focalLength: number; near: number; far: number;
@@ -236,6 +237,7 @@ export function createItem(kind: Item['kind'], index = 0, bodyType: BodyTypeId =
     ...(body
       ? {
           pose: neutralPose(),
+          modelId: defaultModelId(kind),
           bodyType,
           anatomicalLimits: true,
           outfitColor: defaultOutfitColor(kind),
@@ -246,7 +248,7 @@ export function createItem(kind: Item['kind'], index = 0, bodyType: BodyTypeId =
     ...(kind === 'light' ? { position: [3, 5, 3] as Vec3, target: [0, 1, 0] as Vec3, intensity: 30 } : {}),
   };
 }
-export function swapItemBodyKind(item: Item, nextKind: Body, anchoredY?: number): Item {
+export function swapItemBodyKind(item: Item, nextKind: Body, anchoredY?: number, modelId = defaultModelId(nextKind)): Item {
   if (!isBody(item.kind)) {
     throw new Error('Only character figures can swap base figure kind.');
   }
@@ -260,6 +262,7 @@ export function swapItemBodyKind(item: Item, nextKind: Body, anchoredY?: number)
   return {
     ...clone(item),
     kind: nextKind,
+    modelId,
     position: [item.position[0], anchoredY ?? item.position[1], item.position[2]],
     pose: preservedPose,
     bodyType: preservedBodyType,
@@ -327,6 +330,8 @@ export function validatePortable(value: unknown): Portable {
     if (scale.some(n => Math.abs(n) < 0.05)) fail('scale magnitude must be at least 0.05');
     const item: Item = { id, kind, name: text(i.name), color: color(i.color), position: vec(i.position), rotation: vec(i.rotation, -Math.PI * 2, Math.PI * 2), scale };
     if (isBody(kind)) {
+      item.modelId = i.modelId === undefined ? defaultModelId(kind) :
+        isModelId(i.modelId) && CHARACTERS[i.modelId].body === kind ? i.modelId : fail('unknown or incompatible character model');
       item.pose = validatePose(i.pose);
       item.bodyType = i.bodyType === undefined ? DEFAULT_BODY_TYPE : isBodyTypeId(i.bodyType) ? i.bodyType : fail('unknown body proportion');
       item.anatomicalLimits = i.anatomicalLimits === undefined ? true : typeof i.anatomicalLimits === 'boolean' ? i.anatomicalLimits : fail('anatomical limits must be boolean');

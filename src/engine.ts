@@ -7,6 +7,7 @@ import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { computeAnchoredPositionY, getJointRotation, measureFigureMinWorldY, setFigurePose, type Figure } from './rig';
 import { makeExternalFigure, setFigureColors, setFigureHairStyle } from './external-rig';
+import { defaultModelId, type ModelId } from './characterCatalog';
 import { DEFAULT_BODY_TYPE, type BodyTypeId } from './bodyProportions';
 import { clampPoseToAnatomicalLimits } from './skinDeformer';
 import { makeProp } from './props';
@@ -393,7 +394,8 @@ export class Studio {
   };
   sync(state: SceneState): void {
     this.state = clone(state);
-    for (const [id, entry] of this.entries) if (!state.items.some(i => i.id === id && i.kind === entry.kind)) {
+    for (const [id, entry] of this.entries) if (!state.items.some(i => i.id === id && i.kind === entry.kind &&
+      (!isBody(i.kind) || (i.modelId ?? defaultModelId(i.kind)) === entry.figure?.modelId))) {
       this.transform.detach(); this.scene.remove(entry.root);
       if (entry.target) this.scene.remove(entry.target);
       disposeObject(entry.root); this.entries.delete(id);
@@ -402,7 +404,7 @@ export class Studio {
       let entry = this.entries.get(item.id);
       if (!entry) {
         if (isBody(item.kind)) {
-          const figure = makeExternalFigure(item.kind, item.color, item.outfitColor ?? defaultOutfitColor(item.kind));
+          const figure = makeExternalFigure(item.kind, item.color, item.outfitColor ?? defaultOutfitColor(item.kind), item.modelId);
           const markers = JOINTS.map(j => {
             const m = new T.Mesh(new T.SphereGeometry(0.022, 16, 12), new T.MeshBasicMaterial({ color: '#ffd07d', depthTest: false, depthWrite: false }));
             m.renderOrder = 20; m.userData.joint = j; m.layers.set(HELPER_LAYER); figure.bones[j].add(m); return m;
@@ -620,7 +622,7 @@ export class Studio {
   }
   anchoredFigureY(
     id: string,
-    next: { kind?: Body; bodyType?: BodyTypeId; anatomicalLimits?: boolean; pose?: Pose },
+    next: { kind?: Body; modelId?: ModelId; bodyType?: BodyTypeId; anatomicalLimits?: boolean; pose?: Pose },
   ): number | null {
     return computeStudioAnchoredFigureY(this, id, next);
   }
@@ -764,7 +766,7 @@ export class Studio {
 export function computeStudioAnchoredFigureY(
   studio: Studio | null | undefined,
   id: string,
-  next: { kind?: Body; bodyType?: BodyTypeId; anatomicalLimits?: boolean; pose?: Pose },
+  next: { kind?: Body; modelId?: ModelId; bodyType?: BodyTypeId; anatomicalLimits?: boolean; pose?: Pose },
 ): number | null {
   if (!studio) return null;
   const internals = studio as unknown as {
@@ -796,7 +798,8 @@ export function computeStudioAnchoredFigureY(
     const nextPose = clampPoseToAnatomicalLimits(next.pose ?? stateItem.pose, nextLimitMode);
 
     let afterMinY: number;
-    if (nextKind === entry.kind) {
+    const nextModelId = next.modelId ?? (nextKind === stateItem.kind ? stateItem.modelId : undefined) ?? defaultModelId(nextKind);
+    if (nextKind === entry.kind && nextModelId === entry.figure.modelId) {
       entry.figure.deformation = { bodyType: nextBodyType, limitMode: nextLimitMode };
       setFigurePose(entry.figure, nextPose);
       afterMinY = measureFigureMinWorldY(entry.figure);
@@ -805,6 +808,7 @@ export function computeStudioAnchoredFigureY(
         nextKind,
         stateItem.color,
         stateItem.outfitColor ?? defaultOutfitColor(stateItem.kind),
+        nextModelId,
       );
       tempFigure.root.position.fromArray(stateItem.position);
       tempFigure.root.rotation.fromArray(stateItem.rotation);
