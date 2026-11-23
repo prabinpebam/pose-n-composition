@@ -4,8 +4,8 @@ import type { Figure } from './rig';
 
 // Vertices on the inner free boundaries of the two folded lapels. Reject a
 // different source bake rather than accidentally binding another body part.
-export const HELD_TRENCH = {source:'69889901', revision:3, left:10812, right:10543} as const;
-const loft=10930, cols=65, belt=12945, beltRows=6;
+export const HELD_TRENCH = {source:'f450d193', revision:4, left:10811, right:10542, loft:10940} as const;
+const loft=HELD_TRENCH.loft, cols=65, belt=loft+31*cols, beltRows=6;
 // Cut a loop from each end of the source belt grid. Keep the source index
 // buffer immutable: the ordinary trench still uses the continuous band.
 export function isHeldBeltCut(a:number,b:number,c:number) {
@@ -83,7 +83,8 @@ export function buildHeldFit(pattern:string, rest:Float32Array) {
       const sign=edge==='left'?1:-1, anchor=new Vector3().fromBufferAttribute(out,HELD_TRENCH[edge]);
       const side=TRENCH_GRIPS[grip].bindings.find(b=>b[1]===edge)?.[0];
       const delta=new Vector3(sign*.015,0,.007);
-      if(side && !released.includes(HELD_TRENCH[edge])) {
+      const attached=side && !released.includes(HELD_TRENCH[edge]);
+      if(attached) {
         const hand=figure.handRigs?.[side], mcp=hand?.fingers.middle?.phalanges[0]?.bone;
         if(!hand || !mcp) throw new Error(`Cannot resolve the ${side} palm on the held-open coat.`);
         delta.copy(figure.skin.worldToLocal(hand.wristBone.getWorldPosition(new Vector3())
@@ -99,6 +100,8 @@ export function buildHeldFit(pattern:string, rest:Float32Array) {
           out.getY(i)+pull*(1-below)*delta.y+roll*bow*forward.y,
           out.getZ(i)+pull*((1-below*.65)*delta.z+.014*below)+roll*bow*forward.z);
       }
+      // The falloff shapes the surrounding fabric, not the palm constraint.
+      if(attached) out.setXYZ(HELD_TRENCH[edge],anchor.x+delta.x,anchor.y+delta.y,anchor.z+delta.z);
     }
     drapeBelt(out);
   };

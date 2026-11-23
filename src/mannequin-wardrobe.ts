@@ -116,7 +116,7 @@ export function createGarment(figure: Figure, id: Garment, bytes: ArrayBuffer): 
     if(id==='trenchHeld') travel[i]*=(1-T.MathUtils.smoothstep(y,1.34,1.38))*(1-T.MathUtils.smoothstep(arm,.25,.75));
     // A crossed forearm lies in front of the tensioned placket. Its collision
     // surface must not project individual chest vertices through that arm.
-    if(id==='trenchHeld' && i<10930) {
+    if(id==='trenchHeld' && i<HELD_TRENCH.loft) {
       const front=T.MathUtils.smoothstep(patternSpace[i*3+2],.005,.045);
       travel[i]*=1-front*(1-T.MathUtils.smoothstep(Math.abs(patternSpace[i*3]),.14,.19));
     }

@@ -2683,38 +2683,6 @@ export function evaluateSkinDeformation(
     }
 
     // 3B. Hinge Crease-Bisector Half-Space Contact + Lateral Poisson Squish
-    // Left Elbow
-    maxCreaseCorrectionM = Math.max(
-      maxCreaseCorrectionM,
-      applyHingeCreaseContact(
-        weldedPos, tpl.creaseElbL, wm.wUpperArmL, wm.wLowerArmL, 0, restWeldedPos,
-        posedBonePos[bl.lowerarmL * 3]!, posedBonePos[bl.lowerarmL * 3 + 1]!, posedBonePos[bl.lowerarmL * 3 + 2]!,
-        posedBonePos[bl.upperarmL * 3]! - posedBonePos[bl.lowerarmL * 3]!,
-        posedBonePos[bl.upperarmL * 3 + 1]! - posedBonePos[bl.lowerarmL * 3 + 1]!,
-        posedBonePos[bl.upperarmL * 3 + 2]! - posedBonePos[bl.lowerarmL * 3 + 2]!,
-        posedBonePos[bl.handL * 3]! - posedBonePos[bl.lowerarmL * 3]!,
-        posedBonePos[bl.handL * 3 + 1]! - posedBonePos[bl.lowerarmL * 3 + 1]!,
-        posedBonePos[bl.handL * 3 + 2]! - posedBonePos[bl.lowerarmL * 3 + 2]!,
-        state.limbSegs[SEG_LOWERARM_L]!.len, env.upperArmR,
-        65 * DEG, 100 * DEG, 0.0015, 0.48,
-      ),
-    );
-    // Right Elbow
-    maxCreaseCorrectionM = Math.max(
-      maxCreaseCorrectionM,
-      applyHingeCreaseContact(
-        weldedPos, tpl.creaseElbR, wm.wUpperArmR, wm.wLowerArmR, 0, restWeldedPos,
-        posedBonePos[bl.lowerarmR * 3]!, posedBonePos[bl.lowerarmR * 3 + 1]!, posedBonePos[bl.lowerarmR * 3 + 2]!,
-        posedBonePos[bl.upperarmR * 3]! - posedBonePos[bl.lowerarmR * 3]!,
-        posedBonePos[bl.upperarmR * 3 + 1]! - posedBonePos[bl.lowerarmR * 3 + 1]!,
-        posedBonePos[bl.upperarmR * 3 + 2]! - posedBonePos[bl.lowerarmR * 3 + 2]!,
-        posedBonePos[bl.handR * 3]! - posedBonePos[bl.lowerarmR * 3]!,
-        posedBonePos[bl.handR * 3 + 1]! - posedBonePos[bl.lowerarmR * 3 + 1]!,
-        posedBonePos[bl.handR * 3 + 2]! - posedBonePos[bl.lowerarmR * 3 + 2]!,
-        state.limbSegs[SEG_LOWERARM_R]!.len, env.upperArmR,
-        65 * DEG, 100 * DEG, 0.0015, 0.48,
-      ),
-    );
     // Left Knee
     maxCreaseCorrectionM = Math.max(
       maxCreaseCorrectionM,
@@ -2918,6 +2886,22 @@ export function evaluateSkinDeformation(
         weldedPos[w3 + 2] = vz;
         if (totalPush > maxCapsulePushoutM) maxCapsulePushoutM = totalPush;
       }
+    }
+    // Resolve the elbow fold last: a chest contact can otherwise push a
+    // curled forearm straight back through the upper arm.
+    for (const left of [true, false]) {
+      const e = 3 * (left ? bl.lowerarmL : bl.lowerarmR);
+      const s = 3 * (left ? bl.upperarmL : bl.upperarmR);
+      const h = 3 * (left ? bl.handL : bl.handR);
+      maxCreaseCorrectionM = Math.max(maxCreaseCorrectionM, applyHingeCreaseContact(
+        weldedPos, left ? tpl.creaseElbL : tpl.creaseElbR,
+        left ? wm.wUpperArmL : wm.wUpperArmR, left ? wm.wLowerArmL : wm.wLowerArmR, 0, restWeldedPos,
+        posedBonePos[e]!, posedBonePos[e+1]!, posedBonePos[e+2]!,
+        posedBonePos[s]! - posedBonePos[e]!, posedBonePos[s+1]! - posedBonePos[e+1]!, posedBonePos[s+2]! - posedBonePos[e+2]!,
+        posedBonePos[h]! - posedBonePos[e]!, posedBonePos[h+1]! - posedBonePos[e+1]!, posedBonePos[h+2]! - posedBonePos[e+2]!,
+        state.limbSegs[left ? SEG_LOWERARM_L : SEG_LOWERARM_R]!.len, env.upperArmR,
+        65 * DEG, 100 * DEG, 0.0015, 0.48,
+      ));
     }
   }
 
