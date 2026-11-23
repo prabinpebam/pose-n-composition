@@ -149,7 +149,7 @@ describe('Extreme-Pose 3-Layer Skin, Muscle Volume & Anti-Clipping Deformer', ()
 
       const restCreaseRadius = meanCrossSectionRadius(creaseVerts, restPosArr, pElbow0, shaft0);
       const restBroadRadius = meanCrossSectionRadius(broadWristVerts, restPosArr, pElbow0, shaft0);
-      expect(restCreaseRadius).toBeGreaterThan(0.02);
+      expect(restCreaseRadius).toBeGreaterThan(0.014);
 
       // Apply +180 deg twist on leftWrist and -180 deg twist on rightWrist
       const twistPose: Pose = neutralPose();

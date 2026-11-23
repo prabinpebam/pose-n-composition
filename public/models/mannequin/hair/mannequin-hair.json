@@ -1,0 +1,465 @@
+{
+  "version": 1,
+  "binary": "models/mannequin/hair/mannequin-hair.bin",
+  "styleMap": {
+    "female": {
+      "long": "faydaen_updo",
+      "bob": "toigo_bob",
+      "parted": "toigo_bob",
+      "buns": "ponytail01",
+      "bun": "ponytail01",
+      "short": "short02",
+      "curly": "cortu_messy",
+      "buzz": "short01",
+      "partedBeard": "toigo_bob"
+    },
+    "male": {
+      "parted": "culturalibre_parted",
+      "partedBeard": "culturalibre_parted",
+      "short": "short02",
+      "curly": "cortu_messy",
+      "buzz": "short01",
+      "long": "faydaen_updo",
+      "bob": "toigo_bob",
+      "buns": "ponytail01",
+      "bun": "ponytail01"
+    }
+  },
+  "restHead": {
+    "female": {
+      "crownY": 1.75,
+      "center": [
+        0.0,
+        1.645,
+        0.048778
+      ],
+      "halfWidth": 0.088334,
+      "headHeight": 0.235
+    },
+    "male": {
+      "crownY": 1.8,
+      "center": [
+        0.0,
+        1.695,
+        0.057432
+      ],
+      "halfWidth": 0.085576,
+      "headHeight": 0.235
+    }
+  },
+  "assets": {
+    "faydaen_updo": {
+      "id": "faydaen_updo",
+      "alphaMode": "opaque",
+      "albedoPath": "models/mannequin/hair/textures/faydaen_updo_albedo.png",
+      "normalPath": "models/mannequin/hair/textures/faydaen_updo_normal.png",
+      "author": "Faydaen (MakeHuman Community)",
+      "license": "CC0-1.0",
+      "licenseHeader": "# author: Faydaen | # license: CC0",
+      "meshes": {
+        "female": {
+          "vertexCount": 2336,
+          "triangleCount": 3344,
+          "positions": {
+            "byteOffset": 0,
+            "byteLength": 28032,
+            "count": 2336
+          },
+          "normals": {
+            "byteOffset": 28032,
+            "byteLength": 28032,
+            "count": 2336
+          },
+          "uvs": {
+            "byteOffset": 56064,
+            "byteLength": 18688,
+            "count": 2336
+          },
+          "indices": {
+            "byteOffset": 74752,
+            "byteLength": 20064,
+            "count": 10032
+          }
+        },
+        "male": {
+          "vertexCount": 2316,
+          "triangleCount": 3344,
+          "positions": {
+            "byteOffset": 94816,
+            "byteLength": 27792,
+            "count": 2316
+          },
+          "normals": {
+            "byteOffset": 122608,
+            "byteLength": 27792,
+            "count": 2316
+          },
+          "uvs": {
+            "byteOffset": 150400,
+            "byteLength": 18528,
+            "count": 2316
+          },
+          "indices": {
+            "byteOffset": 168928,
+            "byteLength": 20064,
+            "count": 10032
+          }
+        }
+      }
+    },
+    "culturalibre_parted": {
+      "id": "culturalibre_parted",
+      "alphaMode": "opaque",
+      "albedoPath": "models/mannequin/hair/textures/culturalibre_parted_albedo.png",
+      "normalPath": "models/mannequin/hair/textures/culturalibre_parted_normal.png",
+      "author": "Culturalibre (MakeHuman Community)",
+      "license": "CC0-1.0",
+      "licenseHeader": "# author Culturalibre | # license CC-0",
+      "meshes": {
+        "female": {
+          "vertexCount": 15611,
+          "triangleCount": 19792,
+          "positions": {
+            "byteOffset": 188992,
+            "byteLength": 187332,
+            "count": 15611
+          },
+          "normals": {
+            "byteOffset": 376324,
+            "byteLength": 187332,
+            "count": 15611
+          },
+          "uvs": {
+            "byteOffset": 563656,
+            "byteLength": 124888,
+            "count": 15611
+          },
+          "indices": {
+            "byteOffset": 688544,
+            "byteLength": 118752,
+            "count": 59376
+          }
+        },
+        "male": {
+          "vertexCount": 15667,
+          "triangleCount": 19792,
+          "positions": {
+            "byteOffset": 807296,
+            "byteLength": 188004,
+            "count": 15667
+          },
+          "normals": {
+            "byteOffset": 995300,
+            "byteLength": 188004,
+            "count": 15667
+          },
+          "uvs": {
+            "byteOffset": 1183304,
+            "byteLength": 125336,
+            "count": 15667
+          },
+          "indices": {
+            "byteOffset": 1308640,
+            "byteLength": 118752,
+            "count": 59376
+          }
+        }
+      }
+    },
+    "ponytail01": {
+      "id": "ponytail01",
+      "alphaMode": "mask",
+      "albedoPath": "models/mannequin/hair/textures/ponytail01_albedo.png",
+      "normalPath": "models/mannequin/hair/textures/ponytail01_normal.png",
+      "author": "Data Collection AB / Joel Palmius / Jonas Hauquier (MakeHuman System Assets)",
+      "license": "CC0-1.0",
+      "licenseHeader": "# Explicitly released as CC0 in September 2020. Copyright (C) 2020 Data Collection AB",
+      "meshes": {
+        "female": {
+          "vertexCount": 4455,
+          "triangleCount": 5352,
+          "positions": {
+            "byteOffset": 1427392,
+            "byteLength": 53460,
+            "count": 4455
+          },
+          "normals": {
+            "byteOffset": 1480852,
+            "byteLength": 53460,
+            "count": 4455
+          },
+          "uvs": {
+            "byteOffset": 1534312,
+            "byteLength": 35640,
+            "count": 4455
+          },
+          "indices": {
+            "byteOffset": 1569952,
+            "byteLength": 32112,
+            "count": 16056
+          }
+        },
+        "male": {
+          "vertexCount": 4444,
+          "triangleCount": 5352,
+          "positions": {
+            "byteOffset": 1602064,
+            "byteLength": 53328,
+            "count": 4444
+          },
+          "normals": {
+            "byteOffset": 1655392,
+            "byteLength": 53328,
+            "count": 4444
+          },
+          "uvs": {
+            "byteOffset": 1708720,
+            "byteLength": 35552,
+            "count": 4444
+          },
+          "indices": {
+            "byteOffset": 1744272,
+            "byteLength": 32112,
+            "count": 16056
+          }
+        }
+      }
+    },
+    "toigo_bob": {
+      "id": "toigo_bob",
+      "alphaMode": "mask",
+      "albedoPath": "models/mannequin/hair/textures/toigo_bob_albedo.png",
+      "normalPath": "models/mannequin/hair/textures/toigo_bob_normal.png",
+      "author": "Toigo (MakeHuman Community)",
+      "license": "CC0-1.0",
+      "licenseHeader": "# author Toigo | # license CC0",
+      "meshes": {
+        "female": {
+          "vertexCount": 1981,
+          "triangleCount": 2856,
+          "positions": {
+            "byteOffset": 1776384,
+            "byteLength": 23772,
+            "count": 1981
+          },
+          "normals": {
+            "byteOffset": 1800156,
+            "byteLength": 23772,
+            "count": 1981
+          },
+          "uvs": {
+            "byteOffset": 1823928,
+            "byteLength": 15848,
+            "count": 1981
+          },
+          "indices": {
+            "byteOffset": 1839776,
+            "byteLength": 17136,
+            "count": 8568
+          }
+        },
+        "male": {
+          "vertexCount": 2011,
+          "triangleCount": 2856,
+          "positions": {
+            "byteOffset": 1856912,
+            "byteLength": 24132,
+            "count": 2011
+          },
+          "normals": {
+            "byteOffset": 1881044,
+            "byteLength": 24132,
+            "count": 2011
+          },
+          "uvs": {
+            "byteOffset": 1905176,
+            "byteLength": 16088,
+            "count": 2011
+          },
+          "indices": {
+            "byteOffset": 1921264,
+            "byteLength": 17136,
+            "count": 8568
+          }
+        }
+      }
+    },
+    "short02": {
+      "id": "short02",
+      "alphaMode": "mask",
+      "albedoPath": "models/mannequin/hair/textures/short02_albedo.png",
+      "normalPath": "models/mannequin/hair/textures/short02_normal.png",
+      "author": "Data Collection AB / Joel Palmius / Jonas Hauquier (MakeHuman System Assets)",
+      "license": "CC0-1.0",
+      "licenseHeader": "# Explicitly released as CC0 in September 2020. Copyright (C) 2020 Data Collection AB",
+      "meshes": {
+        "female": {
+          "vertexCount": 2216,
+          "triangleCount": 3344,
+          "positions": {
+            "byteOffset": 1938400,
+            "byteLength": 26592,
+            "count": 2216
+          },
+          "normals": {
+            "byteOffset": 1964992,
+            "byteLength": 26592,
+            "count": 2216
+          },
+          "uvs": {
+            "byteOffset": 1991584,
+            "byteLength": 17728,
+            "count": 2216
+          },
+          "indices": {
+            "byteOffset": 2009312,
+            "byteLength": 20064,
+            "count": 10032
+          }
+        },
+        "male": {
+          "vertexCount": 2224,
+          "triangleCount": 3344,
+          "positions": {
+            "byteOffset": 2029376,
+            "byteLength": 26688,
+            "count": 2224
+          },
+          "normals": {
+            "byteOffset": 2056064,
+            "byteLength": 26688,
+            "count": 2224
+          },
+          "uvs": {
+            "byteOffset": 2082752,
+            "byteLength": 17792,
+            "count": 2224
+          },
+          "indices": {
+            "byteOffset": 2100544,
+            "byteLength": 20064,
+            "count": 10032
+          }
+        }
+      }
+    },
+    "short01": {
+      "id": "short01",
+      "alphaMode": "mask",
+      "albedoPath": "models/mannequin/hair/textures/short01_albedo.png",
+      "normalPath": "models/mannequin/hair/textures/short01_normal.png",
+      "author": "Data Collection AB / Joel Palmius / Jonas Hauquier (MakeHuman System Assets)",
+      "license": "CC0-1.0",
+      "licenseHeader": "# Explicitly released as CC0 in September 2020. Copyright (C) 2020 Data Collection AB",
+      "meshes": {
+        "female": {
+          "vertexCount": 3258,
+          "triangleCount": 3678,
+          "positions": {
+            "byteOffset": 2120608,
+            "byteLength": 39096,
+            "count": 3258
+          },
+          "normals": {
+            "byteOffset": 2159704,
+            "byteLength": 39096,
+            "count": 3258
+          },
+          "uvs": {
+            "byteOffset": 2198800,
+            "byteLength": 26064,
+            "count": 3258
+          },
+          "indices": {
+            "byteOffset": 2224864,
+            "byteLength": 22068,
+            "count": 11034
+          }
+        },
+        "male": {
+          "vertexCount": 3266,
+          "triangleCount": 3678,
+          "positions": {
+            "byteOffset": 2246932,
+            "byteLength": 39192,
+            "count": 3266
+          },
+          "normals": {
+            "byteOffset": 2286124,
+            "byteLength": 39192,
+            "count": 3266
+          },
+          "uvs": {
+            "byteOffset": 2325316,
+            "byteLength": 26128,
+            "count": 3266
+          },
+          "indices": {
+            "byteOffset": 2351444,
+            "byteLength": 22068,
+            "count": 11034
+          }
+        }
+      }
+    },
+    "cortu_messy": {
+      "id": "cortu_messy",
+      "alphaMode": "mask",
+      "albedoPath": "models/mannequin/hair/textures/cortu_messy_albedo.png",
+      "normalPath": "models/mannequin/hair/textures/cortu_messy_normal.png",
+      "author": "Cortu Johnstone (MakeHuman Community)",
+      "license": "CC0-1.0",
+      "licenseHeader": "# Cortu Johnstone - CC0",
+      "meshes": {
+        "female": {
+          "vertexCount": 873,
+          "triangleCount": 1092,
+          "positions": {
+            "byteOffset": 2373512,
+            "byteLength": 10476,
+            "count": 873
+          },
+          "normals": {
+            "byteOffset": 2383988,
+            "byteLength": 10476,
+            "count": 873
+          },
+          "uvs": {
+            "byteOffset": 2394464,
+            "byteLength": 6984,
+            "count": 873
+          },
+          "indices": {
+            "byteOffset": 2401448,
+            "byteLength": 6552,
+            "count": 3276
+          }
+        },
+        "male": {
+          "vertexCount": 882,
+          "triangleCount": 1092,
+          "positions": {
+            "byteOffset": 2408000,
+            "byteLength": 10584,
+            "count": 882
+          },
+          "normals": {
+            "byteOffset": 2418584,
+            "byteLength": 10584,
+            "count": 882
+          },
+          "uvs": {
+            "byteOffset": 2429168,
+            "byteLength": 7056,
+            "count": 882
+          },
+          "indices": {
+            "byteOffset": 2436224,
+            "byteLength": 6552,
+            "count": 3276
+          }
+        }
+      }
+    }
+  }
+}

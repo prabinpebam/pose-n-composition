@@ -1,0 +1,10 @@
+Old Man by thanhhuy2020
+https://sketchfab.com/models/6ee41257347e4c9ca1b189ff6a5ce378
+Creative Commons Attribution 4.0: https://creativecommons.org/licenses/by/4.0/
+
+Changes for Pose & Composition: converted the artist's static OBJ to glTF,
+added a weighted 17-joint armature, mapped the sculpted scalp and brows to
+a separate tint material (no additional hair geometry), and baked a 2048-square
+skin/garment texture with independent tint regions on the original mesh.
+There is no clothing shell. The ZIP referenced a material
+library but contained no material library or textures. No endorsement implied.

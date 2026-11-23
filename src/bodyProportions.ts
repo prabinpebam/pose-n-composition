@@ -25,8 +25,8 @@ export const BODY_TYPES: readonly BodyTypeMeta[] = [
   {
     id: 'realistic',
     label: 'Realistic',
-    description: 'Balanced 7.5-head natural human proportions with moderated shoulder taper.',
-    proportionHint: '7.5 heads',
+    description: 'Balanced 7.6–7.7-head studio anatomy with natural shoulder, waist, and limb proportions.',
+    proportionHint: '7.6 heads',
   },
   {
     id: 'heroic',
@@ -86,14 +86,14 @@ export const BODY_TYPE_DESCRIPTIONS: Record<BodyTypeId, string> = Object.fromEnt
   BODY_TYPES.map(entry => [entry.id, entry.description]),
 ) as Record<BodyTypeId, string>;
 
-export const DEFAULT_BODY_TYPE: BodyTypeId = 'heroic';
+export const DEFAULT_BODY_TYPE: BodyTypeId = 'realistic';
 
 export function isBodyTypeId(v: unknown): v is BodyTypeId {
   return typeof v === 'string' && (BODY_TYPE_IDS as readonly string[]).includes(v);
 }
 
 export function getBodyTypeMeta(bodyType: BodyTypeId): BodyTypeMeta {
-  return BODY_TYPES.find(entry => entry.id === bodyType) ?? BODY_TYPES[1]!;
+  return BODY_TYPES.find(entry => entry.id === bodyType) ?? BODY_TYPES[0]!;
 }
 
 export interface SkullEnvelope {
@@ -295,11 +295,20 @@ interface FigureProportionBaseline {
 
 const proportionBaselines = new WeakMap<T.Object3D, FigureProportionBaseline>();
 const morphedSkullEnvelopes = new WeakMap<T.Object3D, SkullEnvelope>();
+const morphedBodyRestPositions = new WeakMap<T.Object3D, Float32Array>();
 const headRestBindInverses = new WeakMap<T.Object3D, T.Matrix4>();
 const materialMannequinMaps = new WeakMap<T.Material, { defaultMap: T.Texture; chibiMap: T.Texture }>();
 
 export function getFigureMorphedSkullEnvelope(figureRoot: T.Object3D): SkullEnvelope | undefined {
   return morphedSkullEnvelopes.get(figureRoot);
+}
+
+export function getFigureMorphedBodyRestPositions(figureRoot: T.Object3D): Float32Array | undefined {
+  return morphedBodyRestPositions.get(figureRoot);
+}
+
+export function getAuthoredSkinPositions(root: T.Object3D, skin: T.SkinnedMesh) {
+  return proportionBaselines.get(root)?.skins.find(s => s.skin === skin)?.basePositions;
 }
 
 export function getFigureHeadRestBindInverse(figureRoot: T.Object3D): T.Matrix4 | undefined {
@@ -471,6 +480,9 @@ export function captureBodyProportionBaseline(figureRoot: T.Object3D): FigurePro
   };
   proportionBaselines.set(figureRoot, baseline);
   morphedSkullEnvelopes.set(figureRoot, baseSkullEnvelope);
+  if (mainSkinEntry) {
+    morphedBodyRestPositions.set(figureRoot, mainSkinEntry.basePositions);
+  }
   const headBone = bonesByName.get('Head') ?? bonesByName.get('head');
   if (headBone) {
     figureRoot.updateMatrixWorld(true);
@@ -731,6 +743,7 @@ export function applyBodyProportion(
   const headScale = morphedHeadHeight / baseline.baseHeadHeight;
 
   morphedSkullEnvelopes.set(figureRoot, morphedSkull);
+  morphedBodyRestPositions.set(figureRoot, new Float32Array(bodyOutPos));
   const headRestInv = manifestInverses.get('Head');
   if (headRestInv) {
     headRestBindInverses.set(figureRoot, headRestInv.clone());

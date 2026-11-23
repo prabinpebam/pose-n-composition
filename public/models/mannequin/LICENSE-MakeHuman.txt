@@ -39,3 +39,16 @@ For these and/or other purposes and motivations, and without any expectation of 
     c. Affirmer disclaims responsibility for clearing rights of other persons that may apply to the Work or any use thereof, including without limitation any person's Copyright and Related Rights in the Work. Further, Affirmer disclaims responsibility for obtaining any necessary consents, permissions or other rights required for any use of the Work.
 
     d. Affirmer understands and acknowledges that Creative Commons is not a party to this document and has no duty or obligation with respect to this CC0 or use of the Work.
+
+---
+
+### MakeHuman & Community CC0 Asset Provenance (`models/mannequin/`)
+
+- Base meshes (`Mannequin_Female.glb`, `Mannequin_Male.glb`): Derived from MakeHuman MPFB2 base human geometry (`CC0 1.0 Universal`).
+- Fitted polygon hair bundle (`models/mannequin/hair/mannequin-hair.json`, `mannequin-hair.bin`, and `models/mannequin/hair/textures/*`): Compiled from individually verified `license CC0` MakeHuman `.mhclo` / `.obj` hair assets:
+  - `faydaen_updo` (`faydaen_hair_1/hair1.mhclo`) — Author: Faydaen (`license CC0`, MakeHuman User Contributed Assets)
+  - `culturalibre_parted` (`culturalibre_hair_05/culturalibre_hair_05.mhclo`) — Author: Culturalibre (`license CC-0`, MakeHuman User Contributed Assets)
+  - `toigo_bob` (`toigo_inverted_bob/toigo_inverted_bob.mhclo`) — Author: Toigo (`license CC0`, MakeHuman User Contributed Assets)
+  - `cortu_messy` (`cortu_short_messy_hair/cortu_short_messy_hair.mhclo`) — Author: Cortu Johnstone (`license CC0`, MakeHuman User Contributed Assets)
+  - `ponytail01` (`ponytail01/ponytail01.mhclo`), `short02` (`short02/short02.mhclo`), and `short01` (`short01/short01.mhclo`) — Author: MakeHuman Project / Data Collection AB (`license CC0`, MakeHuman System Assets `makehuman-assets`)
+

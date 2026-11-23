@@ -5,6 +5,10 @@ fonts are used, not copied. No third-party pose dataset is distributed.
 
 ## Figure models, sculpted hairstyles, and built-in animation cycles
 
+- **Women in Nightgown**, work of Pseudonym, CC BY-SA 4.0. [Source, modifications and license](public/models/unique/nightgown/NOTICE.txt).
+- **Old Man**, thanhhuy2020, CC BY 4.0. [Source, modifications and license](public/models/unique/old-man/NOTICE.txt).
+- **MakeHuman Base Mannequin & Fitted CC0 Hairstyles** (`public/models/mannequin/Mannequin_{Female,Male}.glb` and `public/models/mannequin/hair/*`), derived from MakeHuman MPFB2 / `makehuman-assets` (`ponytail01`, `short02`, `short01` — MakeHuman Project / Data Collection AB) and individually verified `license CC0` MakeHuman User Contributed Assets (`faydaen_hair_1` by Faydaen, `culturalibre_hair_05` by Culturalibre, `toigo_inverted_bob` by Toigo, and `cortu_short_messy_hair` by Cortu Johnstone), dedicated under **CC0 1.0 Universal**. [License and asset list](public/models/mannequin/LICENSE-MakeHuman.txt).
+
 **Quaternius — Universal Base Characters [Standard], Superhero Male/Female & Sculpted Hairstyles.**
 The two selected glTF base models, six sculpted glTF hairstyles (`Hair_SimpleParted`,
 `Hair_Long`, `Hair_Buns`, `Hair_Buzzed`, `Hair_BuzzedFemale`, `Hair_Beard`),

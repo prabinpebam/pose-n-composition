@@ -123,3 +123,29 @@ The repository provenance document is docs/ASSETS.md. It records the exact
 distributions, source URLs, hashes, included licenses, texture filename repairs
 and the distinction between these pack-specific CC0 licenses and the site's
 global license. Do not assume that another asset distribution has identical terms.
+Old Man by thanhhuy2020 - CC BY 4.0. Source, license and adaptation details: models/unique/old-man/NOTICE.txt
+
+Women in Nightgown by work of Pseudonym - CC BY-SA 4.0.
+Source: https://sketchfab.com/models/06a185b36435427baec8d510bdcffccb
+Adaptation details and license: models/unique/nightgown/NOTICE.txt
+https://creativecommons.org/licenses/by-sa/4.0/
+
+5. MakeHuman base mannequin and fitted CC0 hair assets
+------------------------------------------------------
+
+Mannequin Female and Mannequin Male (`models/mannequin/Mannequin_Female.glb`,
+`models/mannequin/Mannequin_Male.glb`) and their fitted polygon hair meshes
+(`models/mannequin/hair/*`) are derived from MakeHuman MPFB2 / `makehuman-assets`
+and MakeHuman User Contributed Assets whose individual `.mhclo` asset headers
+explicitly dedicate each asset under CC0 1.0 Universal:
+
+- `faydaen_hair_1` by Faydaen (CC0 1.0)
+- `culturalibre_hair_05` by Culturalibre (CC0 1.0)
+- `toigo_inverted_bob` by Toigo (CC0 1.0)
+- `cortu_short_messy_hair` by Cortu Johnstone (CC0 1.0)
+- `ponytail01`, `short02`, and `short01` by MakeHuman Project / Data Collection AB (CC0 1.0)
+
+Full CC0 1.0 Universal legal text and asset list:
+models/mannequin/LICENSE-MakeHuman.txt
+
+

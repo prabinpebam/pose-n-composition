@@ -1,6 +1,7 @@
 import * as T from 'three';
 import { JOINTS, type Body, type Joint, type Pose, type Vec3 } from './model';
 import type { Figure } from './rig';
+import type { MorphologyProfile } from './morphology-rig';
 import {
   applyBodyProportion,
   getMannequinWeldTable,
@@ -22,6 +23,7 @@ export interface SkinDeformerOptions {
   enableDeltaMush?: boolean;
   enableContactAndBulge?: boolean;
   deltaMushIterations?: number;
+  onAfterPoseSolve?: () => void;
 }
 
 export interface CoupledRigDiagnostics {
@@ -49,9 +51,15 @@ export interface SkinDeformationDiagnostics {
   maxMuscleBulgeM: number;
   maxCapsulePushoutM: number;
   elapsedMs: number;
+  skippedRedundant?: boolean;
 }
 
 const figureSkinStates = new WeakMap<T.Object3D, FigureSkinState>();
+
+/** CPU skinning repurposes the GPU bone inverses for pass-through rendering. */
+export function posedSkinBindInverses(figure: Figure): readonly T.Matrix4[] {
+  return figureSkinStates.get(figure.root)?.bindBoneInverses ?? figure.skin.skeleton.boneInverses;
+}
 const DEG = Math.PI / 180;
 
 registerProportionPreHook(figureRoot => {
@@ -70,12 +78,12 @@ const ANATOMICAL_JOINT_LIMITS: Record<Joint, JointEulerBounds> = {
   chest: { min: [-35 * DEG, -48 * DEG, -35 * DEG], max: [55 * DEG, 48 * DEG, 35 * DEG] },
   neck: { min: [-50 * DEG, -65 * DEG, -42 * DEG], max: [55 * DEG, 65 * DEG, 42 * DEG] },
   head: { min: [-45 * DEG, -65 * DEG, -38 * DEG], max: [50 * DEG, 65 * DEG, 38 * DEG] },
-  leftShoulder: { min: [-175 * DEG, -115 * DEG, -58 * DEG], max: [78 * DEG, 115 * DEG, 168 * DEG] },
-  rightShoulder: { min: [-175 * DEG, -115 * DEG, -168 * DEG], max: [78 * DEG, 115 * DEG, 58 * DEG] },
-  leftElbow: { min: [-152 * DEG, -105 * DEG, -12 * DEG], max: [2 * DEG, 105 * DEG, 12 * DEG] },
-  rightElbow: { min: [-152 * DEG, -105 * DEG, -12 * DEG], max: [2 * DEG, 105 * DEG, 12 * DEG] },
-  leftWrist: { min: [-85 * DEG, -180 * DEG, -45 * DEG], max: [85 * DEG, 180 * DEG, 45 * DEG] },
-  rightWrist: { min: [-85 * DEG, -180 * DEG, -45 * DEG], max: [85 * DEG, 180 * DEG, 45 * DEG] },
+  leftShoulder: { min: [-180 * DEG, -145 * DEG, -85 * DEG], max: [110 * DEG, 145 * DEG, 180 * DEG] },
+  rightShoulder: { min: [-180 * DEG, -145 * DEG, -180 * DEG], max: [110 * DEG, 145 * DEG, 85 * DEG] },
+  leftElbow: { min: [-160 * DEG, -170 * DEG, -12 * DEG], max: [2 * DEG, 170 * DEG, 12 * DEG] },
+  rightElbow: { min: [-160 * DEG, -170 * DEG, -12 * DEG], max: [2 * DEG, 170 * DEG, 12 * DEG] },
+  leftWrist: { min: [-115 * DEG, -180 * DEG, -115 * DEG], max: [115 * DEG, 180 * DEG, 115 * DEG] },
+  rightWrist: { min: [-115 * DEG, -180 * DEG, -115 * DEG], max: [115 * DEG, 180 * DEG, 115 * DEG] },
   leftHip: { min: [-145 * DEG, -65 * DEG, -40 * DEG], max: [55 * DEG, 65 * DEG, 85 * DEG] },
   rightHip: { min: [-145 * DEG, -65 * DEG, -85 * DEG], max: [55 * DEG, 65 * DEG, 40 * DEG] },
   leftKnee: { min: [-2 * DEG, -28 * DEG, -8 * DEG], max: [155 * DEG, 28 * DEG, 8 * DEG] },
@@ -263,9 +271,22 @@ interface FigureSkinState {
   weldedPos: Float32Array;
   smoothWeldNorm: Float32Array;
   normGroupAccum: Float64Array;
+
+  // Pose & bone-skinning dirty caches for O(1) unchanged-pose short-circuiting
+  hasCachedAppliedPose: boolean;
+  lastAppliedPose48: Float32Array;
+  lastAppliedJointQuats64: Float32Array;
+  lastAppliedMetaKey: string;
+  hasCachedDeformation: boolean;
+  lastDeformedBoneQuatTrans: Float32Array;
+  lastDeformedMetaKey: string;
+  lastDeformationDiagnostics: SkinDeformationDiagnostics | null;
 }
 
 const topologyCache = new Map<string, TopologyTemplate>();
+const POSE_DIRTY_EPSILON = 1e-6;
+const BONE_TRANS_EPSILON = 1e-6;
+const BONE_QUAT_DOT_MIN = 1 - 1e-9;
 
 // Reusable module-level temporaries (never escaped)
 const _matA = new T.Matrix4();
@@ -276,11 +297,25 @@ const _quatB = new T.Quaternion();
 const _quatC = new T.Quaternion();
 const _quatD = new T.Quaternion();
 const _quatId = new T.Quaternion();
+const _quatChestTarget = new T.Quaternion();
+const _quatChestWorld = new T.Quaternion();
+const _quatChestChar = new T.Quaternion();
+const _quatUpperTarget = new T.Quaternion();
+const _quatElevWorld = new T.Quaternion();
+const _quatProtWorld = new T.Quaternion();
+const _quatClavParent = new T.Quaternion();
+const _quatClavRestWorld = new T.Quaternion();
+const _quatAbduct = new T.Quaternion();
+const _quatCurUpperWorld = new T.Quaternion();
+const _quatParentInv = new T.Quaternion();
 const _eulerA = new T.Euler();
 const _vecA = new T.Vector3();
 const _vecB = new T.Vector3();
 const _vecC = new T.Vector3();
 const _vecScale = new T.Vector3();
+const _savedRootPos = new T.Vector3();
+const _savedRootQuat = new T.Quaternion();
+const _savedRootScale = new T.Vector3();
 const _spineAxisX = new T.Vector3();
 const _spineAxisY = new T.Vector3();
 const _spineAxisZ = new T.Vector3();
@@ -299,11 +334,70 @@ function sanitizeAngle(v: number): number {
   return Number.isFinite(v) ? v : 0;
 }
 
+const NON_CANONICAL_LIMB_LIMITS: Partial<Record<Joint, JointEulerBounds>> = {
+  leftShoulder: { min: [-180 * DEG, -180 * DEG, -180 * DEG], max: [180 * DEG, 180 * DEG, 180 * DEG] },
+  rightShoulder: { min: [-180 * DEG, -180 * DEG, -180 * DEG], max: [180 * DEG, 180 * DEG, 180 * DEG] },
+  leftElbow: { min: [-165 * DEG, -180 * DEG, -165 * DEG], max: [165 * DEG, 180 * DEG, 165 * DEG] },
+  rightElbow: { min: [-165 * DEG, -180 * DEG, -165 * DEG], max: [165 * DEG, 180 * DEG, 165 * DEG] },
+  leftWrist: { min: [-155 * DEG, -180 * DEG, -155 * DEG], max: [155 * DEG, 180 * DEG, 155 * DEG] },
+  rightWrist: { min: [-155 * DEG, -180 * DEG, -155 * DEG], max: [155 * DEG, 180 * DEG, 155 * DEG] },
+  leftHip: { min: [-150 * DEG, -95 * DEG, -95 * DEG], max: [80 * DEG, 95 * DEG, 95 * DEG] },
+  rightHip: { min: [-150 * DEG, -95 * DEG, -95 * DEG], max: [80 * DEG, 95 * DEG, 95 * DEG] },
+  leftKnee: { min: [-25 * DEG, -65 * DEG, -45 * DEG], max: [165 * DEG, 65 * DEG, 45 * DEG] },
+  rightKnee: { min: [-25 * DEG, -65 * DEG, -45 * DEG], max: [165 * DEG, 65 * DEG, 45 * DEG] },
+  leftAnkle: { min: [-75 * DEG, -75 * DEG, -65 * DEG], max: [75 * DEG, 75 * DEG, 65 * DEG] },
+  rightAnkle: { min: [-75 * DEG, -75 * DEG, -65 * DEG], max: [75 * DEG, 75 * DEG, 65 * DEG] },
+};
+
+const _clampEulerIn = new T.Euler();
+const _clampEulerOut = new T.Euler();
+const _clampQuatWorld = new T.Quaternion();
+const _clampQuatLimb = new T.Quaternion();
+const _clampFrameInv = new T.Quaternion();
+
+function clampEulerOrderForJoint(joint: Joint): T.EulerOrder {
+  return joint === 'leftWrist' ||
+    joint === 'rightWrist' ||
+    joint === 'leftElbow' ||
+    joint === 'rightElbow'
+    ? 'YXZ'
+    : 'XYZ';
+}
+
+function resolveLimbClampFrame(joint: Joint, morphology: MorphologyProfile): T.Quaternion | null {
+  switch (joint) {
+    case 'leftShoulder':
+      return morphology.leftArm.upperBindFrame;
+    case 'rightShoulder':
+      return morphology.rightArm.upperBindFrame;
+    case 'leftElbow':
+    case 'leftWrist':
+      return morphology.leftArm.lowerBindFrame;
+    case 'rightElbow':
+    case 'rightWrist':
+      return morphology.rightArm.lowerBindFrame;
+    case 'leftHip':
+      return morphology.leftLeg.upperBindFrame;
+    case 'rightHip':
+      return morphology.rightLeg.upperBindFrame;
+    case 'leftKnee':
+    case 'leftAnkle':
+      return morphology.leftLeg.lowerBindFrame;
+    case 'rightKnee':
+    case 'rightAnkle':
+      return morphology.rightLeg.lowerBindFrame;
+    default:
+      return null;
+  }
+}
+
 export function clampPoseToAnatomicalLimits(
   pose: Pose,
   mode: PoseLimitMode = 'anatomical',
+  morphology?: MorphologyProfile | null,
 ): Pose {
   const out = {} as Pose;
+  const nonCanonical = Boolean(morphology && !morphology.isCanonicalMannequin);
   for (const j of JOINTS) {
     const src = pose[j] ?? [0, 0, 0];
     const rx = sanitizeAngle(src[0]);
@@ -313,7 +407,57 @@ export function clampPoseToAnatomicalLimits(
       out[j] = [rx, ry, rz];
       continue;
     }
+    if (nonCanonical && morphology) {
+      const frame = resolveLimbClampFrame(j, morphology);
+      const limbBounds = NON_CANONICAL_LIMB_LIMITS[j];
+      if (frame && limbBounds) {
+        const order = clampEulerOrderForJoint(j);
+        _clampEulerIn.set(rx, ry, rz, 'XYZ');
+        _clampQuatWorld.setFromEuler(_clampEulerIn);
+        _clampFrameInv.copy(frame).invert();
+        _clampQuatLimb.copy(_clampFrameInv).multiply(_clampQuatWorld).multiply(frame);
+        _clampEulerOut.setFromQuaternion(_clampQuatLimb, order);
+        const cx = clamp(_clampEulerOut.x, limbBounds.min[0], limbBounds.max[0]);
+        const cy = clamp(_clampEulerOut.y, limbBounds.min[1], limbBounds.max[1]);
+        const cz = clamp(_clampEulerOut.z, limbBounds.min[2], limbBounds.max[2]);
+        const wasClamped =
+          Math.abs(cx - _clampEulerOut.x) > 1e-6 ||
+          Math.abs(cy - _clampEulerOut.y) > 1e-6 ||
+          Math.abs(cz - _clampEulerOut.z) > 1e-6;
+        if (!wasClamped) {
+          out[j] = [rx, ry, rz];
+        } else {
+          _clampEulerIn.set(cx, cy, cz, order);
+          _clampQuatLimb.setFromEuler(_clampEulerIn);
+          _clampQuatWorld.copy(frame).multiply(_clampQuatLimb).multiply(_clampFrameInv);
+          _clampEulerOut.setFromQuaternion(_clampQuatWorld, 'XYZ');
+          out[j] = [_clampEulerOut.x, _clampEulerOut.y, _clampEulerOut.z];
+        }
+        continue;
+      }
+    }
     const bounds = ANATOMICAL_JOINT_LIMITS[j];
+    if (j === 'leftWrist' || j === 'rightWrist') {
+      _clampEulerIn.set(rx, ry, rz, 'XYZ');
+      _clampQuatWorld.setFromEuler(_clampEulerIn);
+      _clampEulerOut.setFromQuaternion(_clampQuatWorld, 'YXZ');
+      const cx = clamp(_clampEulerOut.x, bounds.min[0], bounds.max[0]);
+      const cy = clamp(_clampEulerOut.y, bounds.min[1], bounds.max[1]);
+      const cz = clamp(_clampEulerOut.z, bounds.min[2], bounds.max[2]);
+      const wasClamped =
+        Math.abs(cx - _clampEulerOut.x) > 1e-6 ||
+        Math.abs(cy - _clampEulerOut.y) > 1e-6 ||
+        Math.abs(cz - _clampEulerOut.z) > 1e-6;
+      if (!wasClamped) {
+        out[j] = [rx, ry, rz];
+      } else {
+        _clampEulerIn.set(cx, cy, cz, 'YXZ');
+        _clampQuatWorld.setFromEuler(_clampEulerIn);
+        _clampEulerOut.setFromQuaternion(_clampQuatWorld, 'XYZ');
+        out[j] = [_clampEulerOut.x, _clampEulerOut.y, _clampEulerOut.z];
+      }
+      continue;
+    }
     out[j] = [
       clamp(rx, bounds.min[0], bounds.max[0]),
       clamp(ry, bounds.min[1], bounds.max[1]),
@@ -1227,10 +1371,22 @@ function refreshMorphedBindSnapshot(state: FigureSkinState, deltaMushIterations:
 
   state.envelope = measureBodyEnvelope(state.restWeldedPos, state.bindBonePos, tpl);
   state.activePassThrough = false;
+  state.hasCachedAppliedPose = false;
+  state.hasCachedDeformation = false;
+  state.mainSkin.userData.__skinDeformerPassThrough = false;
+  if (state.mainSkin.geometry.boundsTree) {
+    state.mainSkin.geometry.disposeBoundsTree?.();
+    state.mainSkin.geometry.boundsTree = undefined;
+  }
 }
 
 function restoreBindAttributesIfPassThrough(state: FigureSkinState): void {
-  if (!state.activePassThrough) return;
+  state.hasCachedAppliedPose = false;
+  state.hasCachedDeformation = false;
+  if (!state.activePassThrough) {
+    state.mainSkin.userData.__skinDeformerPassThrough = false;
+    return;
+  }
   const { mainSkin } = state;
   const posAttr = mainSkin.geometry.getAttribute('position') as T.BufferAttribute;
   const normAttr = mainSkin.geometry.getAttribute('normal') as T.BufferAttribute;
@@ -1242,6 +1398,11 @@ function restoreBindAttributesIfPassThrough(state: FigureSkinState): void {
     mainSkin.skeleton.boneInverses[b]!.copy(state.bindBoneInverses[b]!);
   }
   state.activePassThrough = false;
+  mainSkin.userData.__skinDeformerPassThrough = false;
+  if (mainSkin.geometry.boundsTree) {
+    mainSkin.geometry.disposeBoundsTree?.();
+    mainSkin.geometry.boundsTree = undefined;
+  }
 }
 
 function resolveDeltaMushIterations(weldCount: number, explicit?: number): number {
@@ -1381,6 +1542,14 @@ function ensureFigureSkinState(figure: Figure, options?: SkinDeformerOptions): F
     weldedPos: new Float32Array(weldCount * 3),
     smoothWeldNorm: new Float32Array(weldCount * 3),
     normGroupAccum: new Float64Array(normWeldGroupCount * 3),
+    hasCachedAppliedPose: false,
+    lastAppliedPose48: new Float32Array(JOINTS.length * 3),
+    lastAppliedJointQuats64: new Float32Array(JOINTS.length * 4),
+    lastAppliedMetaKey: '',
+    hasCachedDeformation: false,
+    lastDeformedBoneQuatTrans: new Float32Array(boneCount * 7),
+    lastDeformedMetaKey: '',
+    lastDeformationDiagnostics: null,
   };
 
   refreshMorphedBindSnapshot(state, dmIters);
@@ -1412,10 +1581,11 @@ export function solveCoupledRigPose(
   options?: SkinDeformerOptions,
 ): CoupledRigDiagnostics {
   const state = ensureFigureSkinState(figure, options);
+  state.hasCachedAppliedPose = false;
   const limitMode = options?.limitMode ?? 'anatomical';
   const enableCoupled = options?.enableCoupledJoints ?? true;
 
-  const effectivePose = clampPoseToAnatomicalLimits(pose, limitMode);
+  const effectivePose = clampPoseToAnatomicalLimits(pose, limitMode, figure.morphology);
   let clampedJointCount = 0;
   if (limitMode === 'anatomical') {
     for (const j of JOINTS) {
@@ -1470,7 +1640,7 @@ export function solveCoupledRigPose(
     state.spine02 &&
     (Math.abs(chestAngles[0]) > 1e-5 || Math.abs(chestAngles[1]) > 1e-5 || Math.abs(chestAngles[2]) > 1e-5)
   ) {
-    const targetChestWorld = figure.bones.chest.getWorldQuaternion(new T.Quaternion());
+    const targetChestWorld = figure.bones.chest.getWorldQuaternion(_quatChestTarget);
     _eulerA.set(chestAngles[0], chestAngles[1], chestAngles[2], 'XYZ');
     _quatA.setFromEuler(_eulerA);
     _quatB.copy(_quatId).slerp(_quatA, 0.45);
@@ -1491,10 +1661,10 @@ export function solveCoupledRigPose(
   }
 
   // 1B. World-Direction-Preserving Scapulohumeral Rhythm on clavicle_l / clavicle_r
-  const chestWorldQuat = figure.bones.chest.getWorldQuaternion(new T.Quaternion());
+  const chestWorldQuat = figure.bones.chest.getWorldQuaternion(_quatChestWorld);
   // Strip spine_03's rest world orientation on the right (`rotationBases.chest == inv(Q_chest_restWorld)`)
   // so `chestCharQuat = Q_root * Delta_thoracic` maps character (+X Left, +Y Up, +Z Forward) directly to world space!
-  const chestCharQuat = chestWorldQuat.clone().multiply(figure.rotationBases.chest);
+  const chestCharQuat = _quatChestChar.copy(chestWorldQuat).multiply(figure.rotationBases.chest);
   _spineAxisX.set(1, 0, 0).applyQuaternion(chestCharQuat).normalize(); // Left
   _spineAxisY.set(0, 1, 0).applyQuaternion(chestCharQuat).normalize(); // Up
   _spineAxisZ.set(0, 0, 1).applyQuaternion(chestCharQuat).normalize(); // Forward
@@ -1506,7 +1676,7 @@ export function solveCoupledRigPose(
     const hand = isLeft ? figure.bones.leftWrist : figure.bones.rightWrist;
     if (!clav) return;
 
-    const targetUpperWorld = upper.getWorldQuaternion(new T.Quaternion());
+    const targetUpperWorld = upper.getWorldQuaternion(_quatUpperTarget);
     upper.getWorldPosition(_vecA);
     lower.getWorldPosition(_vecB);
     _vecC.subVectors(_vecB, _vecA);
@@ -1530,12 +1700,12 @@ export function solveCoupledRigPose(
 
     if (elevRad > 1e-5 || Math.abs(protRad) > 1e-5) {
       // Elevate around +Z (left) / -Z (right), protract around -Y (left) / +Y (right) in world space
-      const qElevWorld = new T.Quaternion().setFromAxisAngle(_spineAxisZ, outSign * elevRad);
-      const qProtWorld = new T.Quaternion().setFromAxisAngle(_spineAxisY, -outSign * protRad);
+      const qElevWorld = _quatElevWorld.setFromAxisAngle(_spineAxisZ, outSign * elevRad);
+      const qProtWorld = _quatProtWorld.setFromAxisAngle(_spineAxisY, -outSign * protRad);
       const clavParentWorld = clav.parent
-        ? clav.parent.getWorldQuaternion(new T.Quaternion())
-        : new T.Quaternion();
-      const clavRestWorld = clavParentWorld.clone().multiply(
+        ? clav.parent.getWorldQuaternion(_quatClavParent)
+        : _quatClavParent.identity();
+      const clavRestWorld = _quatClavRestWorld.copy(clavParentWorld).multiply(
         isLeft ? state.clavicleLRestLocal : state.clavicleRRestLocal,
       );
       const desiredClavWorld = qProtWorld.multiply(qElevWorld).multiply(clavRestWorld);
@@ -1565,11 +1735,11 @@ export function solveCoupledRigPose(
         const hangFactor = 1 - smoothstep(14 * DEG, 35 * DEG, raiseAngle);
         const abductRad = clamp((pen / 0.26) * hangFactor, 0, 11 * DEG);
         if (abductRad > 1e-4) {
-          const qAbduct = new T.Quaternion().setFromAxisAngle(_spineAxisZ, outSign * abductRad);
-          const curUpperWorld = upper.getWorldQuaternion(new T.Quaternion());
+          const qAbduct = _quatAbduct.setFromAxisAngle(_spineAxisZ, outSign * abductRad);
+          const curUpperWorld = upper.getWorldQuaternion(_quatCurUpperWorld);
           const parentInv = upper.parent
-            ? upper.parent.getWorldQuaternion(new T.Quaternion()).invert()
-            : new T.Quaternion();
+            ? upper.parent.getWorldQuaternion(_quatParentInv).invert()
+            : _quatParentInv.identity();
           upper.quaternion.copy(parentInv).multiply(qAbduct.multiply(curUpperWorld));
           upper.updateMatrixWorld(true);
         }
@@ -1970,6 +2140,54 @@ export function evaluateSkinDeformation(
     posedBoneRot9[rOff + 6] = boneSkinMat[mOff + 8]!;
     posedBoneRot9[rOff + 7] = boneSkinMat[mOff + 9]!;
     posedBoneRot9[rOff + 8] = boneSkinMat[mOff + 10]!;
+  }
+
+  // Bone-skinning dirty check: if every bone's rigid SE(3) skinning transform & deformer flags
+  // match the last evaluated pass-through state, skip the 55k-vertex loop & GPU re-upload!
+  const deformMetaKey = `${activeBt ?? ''}|${enableTwist ? 1 : 0}|${enableDqs ? 1 : 0}|${enableDeltaMush ? 1 : 0}|${enableContact ? 1 : 0}|${dmIters}|${state.lastProportionRevision}`;
+  if (
+    state.activePassThrough &&
+    state.hasCachedDeformation &&
+    state.lastDeformationDiagnostics !== null &&
+    state.lastDeformedMetaKey === deformMetaKey
+  ) {
+    let bonesUnchanged = true;
+    const prevQT = state.lastDeformedBoneQuatTrans;
+    for (let b = 0; b < boneCount; b++) {
+      const off7 = b * 7;
+      const qx = boneQuat[b * 4]!, qy = boneQuat[b * 4 + 1]!, qz = boneQuat[b * 4 + 2]!, qw = boneQuat[b * 4 + 3]!;
+      const tx = boneTrans[b * 3]!, ty = boneTrans[b * 3 + 1]!, tz = boneTrans[b * 3 + 2]!;
+      const dot = Math.abs(
+        qx * prevQT[off7]! + qy * prevQT[off7 + 1]! + qz * prevQT[off7 + 2]! + qw * prevQT[off7 + 3]!,
+      );
+      if (
+        dot < BONE_QUAT_DOT_MIN ||
+        Math.abs(tx - prevQT[off7 + 4]!) > BONE_TRANS_EPSILON ||
+        Math.abs(ty - prevQT[off7 + 5]!) > BONE_TRANS_EPSILON ||
+        Math.abs(tz - prevQT[off7 + 6]!) > BONE_TRANS_EPSILON
+      ) {
+        bonesUnchanged = false;
+        break;
+      }
+    }
+
+    if (bonesUnchanged) {
+      // Keep skeleton boneInverses synced with current bone.matrixWorld in case root moved
+      _matB.copy(mainSkin.bindMatrix).invert();
+      _matA.multiplyMatrices(mainSkin.matrixWorld, _matB);
+      for (let b = 0; b < boneCount; b++) {
+        const bone = mainSkin.skeleton.bones[b]!;
+        mainSkin.skeleton.boneInverses[b]!.copy(bone.matrixWorld).invert().multiply(_matA);
+      }
+      mainSkin.skeleton.update();
+      const tFast = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      return {
+        ...state.lastDeformationDiagnostics,
+        coupled: state.lastCoupledDiagnostics,
+        elapsedMs: tFast - t0,
+        skippedRedundant: true,
+      };
+    }
   }
 
   // Step 2A: Extract continuous axial twist angles along the 8 major limb segments
@@ -2791,6 +3009,10 @@ export function evaluateSkinDeformation(
 
   posAttr.needsUpdate = true;
   normAttr.needsUpdate = true;
+  if (mainSkin.geometry.boundsTree) {
+    mainSkin.geometry.disposeBoundsTree?.();
+    mainSkin.geometry.boundsTree = undefined;
+  }
 
   // Step 5: Configure world-transform-invariant identity pass-through skinning on `mainSkin.skeleton`
   // Setting boneInverses[b] = inv(bones[b].matrixWorld) * mainSkin.matrixWorld * inv(bindMatrix)
@@ -2804,20 +3026,54 @@ export function evaluateSkinDeformation(
   }
   mainSkin.skeleton.update();
   state.activePassThrough = true;
+  mainSkin.userData.__skinDeformerPassThrough = true;
 
   if (Number.isFinite(minX)) {
     if (!mainSkin.boundingBox) mainSkin.boundingBox = new T.Box3();
     mainSkin.boundingBox.min.set(minX, minY, minZ);
     mainSkin.boundingBox.max.set(maxX, maxY, maxZ);
+
+    // Compute tight posed bounding sphere around the posed AABB midpoint (avoids sqrt(3) corner bloat & zero allocations!)
+    const cx = 0.5 * (minX + maxX);
+    const cy = 0.5 * (minY + maxY);
+    const cz = 0.5 * (minZ + maxZ);
+    let maxRadSq = 0;
+    for (let w = 0; w < weldCount; w++) {
+      const w3 = w * 3;
+      const dx = weldedPos[w3]! - cx;
+      const dy = weldedPos[w3 + 1]! - cy;
+      const dz = weldedPos[w3 + 2]! - cz;
+      const dSq = dx * dx + dy * dy + dz * dz;
+      if (dSq > maxRadSq) maxRadSq = dSq;
+    }
     if (!mainSkin.boundingSphere) mainSkin.boundingSphere = new T.Sphere();
-    mainSkin.boundingBox.getBoundingSphere(mainSkin.boundingSphere);
-    mainSkin.geometry.boundingBox = mainSkin.boundingBox.clone();
-    mainSkin.geometry.boundingSphere = mainSkin.boundingSphere.clone();
+    mainSkin.boundingSphere.center.set(cx, cy, cz);
+    mainSkin.boundingSphere.radius = Math.sqrt(maxRadSq) + 1e-4;
+
+    if (!mainSkin.geometry.boundingBox) mainSkin.geometry.boundingBox = new T.Box3();
+    mainSkin.geometry.boundingBox.copy(mainSkin.boundingBox);
+    if (!mainSkin.geometry.boundingSphere) mainSkin.geometry.boundingSphere = new T.Sphere();
+    mainSkin.geometry.boundingSphere.copy(mainSkin.boundingSphere);
   }
+
+  // Record bone skinning transform cache for fast unchanged-bone short-circuiting
+  const cachedQT = state.lastDeformedBoneQuatTrans;
+  for (let b = 0; b < boneCount; b++) {
+    const off7 = b * 7;
+    cachedQT[off7] = boneQuat[b * 4]!;
+    cachedQT[off7 + 1] = boneQuat[b * 4 + 1]!;
+    cachedQT[off7 + 2] = boneQuat[b * 4 + 2]!;
+    cachedQT[off7 + 3] = boneQuat[b * 4 + 3]!;
+    cachedQT[off7 + 4] = boneTrans[b * 3]!;
+    cachedQT[off7 + 5] = boneTrans[b * 3 + 1]!;
+    cachedQT[off7 + 6] = boneTrans[b * 3 + 2]!;
+  }
+  state.lastDeformedMetaKey = deformMetaKey;
+  state.hasCachedDeformation = true;
 
   const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
-  return {
+  const diagResult: SkinDeformationDiagnostics = {
     coupled: state.lastCoupledDiagnostics,
     leftForearmTwistRad,
     rightForearmTwistRad,
@@ -2831,7 +3087,93 @@ export function evaluateSkinDeformation(
     maxMuscleBulgeM,
     maxCapsulePushoutM,
     elapsedMs: t1 - t0,
+    skippedRedundant: false,
   };
+  state.lastDeformationDiagnostics = diagResult;
+  return diagResult;
+}
+
+function buildAppliedPoseMetaKey(
+  effectiveBodyType: string | undefined,
+  options: SkinDeformerOptions | undefined,
+  proportionRevision: number,
+  weldCount: number,
+): string {
+  const limitMode = options?.limitMode ?? 'anatomical';
+  const enableCoupled = options?.enableCoupledJoints ?? true;
+  const enableTwist = options?.enableTwistDistribution ?? true;
+  const enableDqs = options?.enableHybridDqs ?? true;
+  const enableDeltaMush = options?.enableDeltaMush ?? true;
+  const enableContact = options?.enableContactAndBulge ?? effectiveBodyType !== 'chibi';
+  const dmIters = resolveDeltaMushIterations(weldCount, options?.deltaMushIterations);
+  return `${effectiveBodyType ?? ''}|${limitMode}|${enableCoupled ? 1 : 0}|${enableTwist ? 1 : 0}|${enableDqs ? 1 : 0}|${enableDeltaMush ? 1 : 0}|${enableContact ? 1 : 0}|${dmIters}|${proportionRevision}`;
+}
+
+function isAppliedPoseUnchanged(
+  figure: Figure,
+  pose: Pose,
+  state: FigureSkinState,
+  metaKey: string,
+  effectiveBodyType: string | undefined,
+): boolean {
+  if (!state.hasCachedAppliedPose || state.lastAppliedMetaKey !== metaKey || !state.lastDeformationDiagnostics) {
+    return false;
+  }
+  const expectedPassThrough = effectiveBodyType !== 'chibi';
+  if (state.activePassThrough !== expectedPassThrough) {
+    return false;
+  }
+  const lastPose = state.lastAppliedPose48;
+  const lastQuats = state.lastAppliedJointQuats64;
+  for (let i = 0; i < JOINTS.length; i++) {
+    const j = JOINTS[i]!;
+    const raw = pose[j] ?? [0, 0, 0];
+    const p3 = i * 3;
+    if (
+      Math.abs(sanitizeAngle(raw[0]) - lastPose[p3]!) > POSE_DIRTY_EPSILON ||
+      Math.abs(sanitizeAngle(raw[1]) - lastPose[p3 + 1]!) > POSE_DIRTY_EPSILON ||
+      Math.abs(sanitizeAngle(raw[2]) - lastPose[p3 + 2]!) > POSE_DIRTY_EPSILON
+    ) {
+      return false;
+    }
+    const q = figure.bones[j].quaternion;
+    const q4 = i * 4;
+    if (
+      Math.abs(q.x - lastQuats[q4]!) > POSE_DIRTY_EPSILON ||
+      Math.abs(q.y - lastQuats[q4 + 1]!) > POSE_DIRTY_EPSILON ||
+      Math.abs(q.z - lastQuats[q4 + 2]!) > POSE_DIRTY_EPSILON ||
+      Math.abs(q.w - lastQuats[q4 + 3]!) > POSE_DIRTY_EPSILON
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function recordAppliedPoseSignature(
+  figure: Figure,
+  pose: Pose,
+  state: FigureSkinState,
+  metaKey: string,
+): void {
+  const lastPose = state.lastAppliedPose48;
+  const lastQuats = state.lastAppliedJointQuats64;
+  for (let i = 0; i < JOINTS.length; i++) {
+    const j = JOINTS[i]!;
+    const raw = pose[j] ?? [0, 0, 0];
+    const p3 = i * 3;
+    lastPose[p3] = sanitizeAngle(raw[0]);
+    lastPose[p3 + 1] = sanitizeAngle(raw[1]);
+    lastPose[p3 + 2] = sanitizeAngle(raw[2]);
+    const q = figure.bones[j].quaternion;
+    const q4 = i * 4;
+    lastQuats[q4] = q.x;
+    lastQuats[q4 + 1] = q.y;
+    lastQuats[q4 + 2] = q.z;
+    lastQuats[q4 + 3] = q.w;
+  }
+  state.lastAppliedMetaKey = metaKey;
+  state.hasCachedAppliedPose = true;
 }
 
 /**
@@ -2847,6 +3189,36 @@ export function applyExtremePoseDeformer(
 ): SkinDeformationDiagnostics {
   const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
   const { root } = figure;
+  const effectiveBodyType =
+    options?.bodyType ??
+    figure.deformation?.bodyType ??
+    (isBodyTypeId(figure.root.userData?.bodyType) ? figure.root.userData.bodyType : undefined);
+
+  // O(1) (< 0.005ms) dirty-pose short-circuit when pose, bodyType/proportion revision, and joint quaternions match!
+  const existingState = figureSkinStates.get(root);
+  if (existingState && !options?.onAfterPoseSolve) {
+    const rev = (root.userData.__bodyProportionRevision as number) || 0;
+    const bodyTypeMatches =
+      !options?.bodyType || !isBodyTypeId(options.bodyType) || root.userData.bodyType === options.bodyType;
+    if (bodyTypeMatches && rev === existingState.lastProportionRevision) {
+      const metaKey = buildAppliedPoseMetaKey(
+        effectiveBodyType,
+        options,
+        rev,
+        existingState.topology.weldCount,
+      );
+      if (isAppliedPoseUnchanged(figure, pose, existingState, metaKey, effectiveBodyType)) {
+        const tFast = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        return {
+          ...existingState.lastDeformationDiagnostics!,
+          coupled: existingState.lastCoupledDiagnostics,
+          elapsedMs: tFast - t0,
+          skippedRedundant: true,
+        };
+      }
+    }
+  }
+
   const needsRootNormalize =
     root.position.x !== 0 ||
     root.position.y !== 0 ||
@@ -2858,20 +3230,16 @@ export function applyExtremePoseDeformer(
     root.scale.x !== 1 ||
     root.scale.y !== 1 ||
     root.scale.z !== 1;
-  const savedPos = needsRootNormalize ? root.position.clone() : null;
-  const savedQuat = needsRootNormalize ? root.quaternion.clone() : null;
-  const savedScale = needsRootNormalize ? root.scale.clone() : null;
   if (needsRootNormalize) {
+    _savedRootPos.copy(root.position);
+    _savedRootQuat.copy(root.quaternion);
+    _savedRootScale.copy(root.scale);
     root.position.set(0, 0, 0);
     root.quaternion.identity();
     root.scale.set(1, 1, 1);
   }
   let coupled: CoupledRigDiagnostics;
   let res: SkinDeformationDiagnostics;
-  const effectiveBodyType =
-    options?.bodyType ??
-    figure.deformation?.bodyType ??
-    (isBodyTypeId(figure.root.userData?.bodyType) ? figure.root.userData.bodyType : undefined);
   try {
     if (effectiveBodyType === 'chibi') {
       // Anime Chibi (2.5-head compact torso) uses Layer 1 coupled biomechanical joints + clean GPU LBS skinning
@@ -2879,6 +3247,7 @@ export function applyExtremePoseDeformer(
       const state = ensureFigureSkinState(figure, { ...options, bodyType: 'chibi' });
       restoreBindAttributesIfPassThrough(state);
       coupled = solveCoupledRigPose(figure, pose, { ...options, bodyType: 'chibi' });
+      options?.onAfterPoseSolve?.();
       figure.root.updateMatrixWorld(true);
       figure.skins.forEach(skin => {
         skin.skeleton.update();
@@ -2899,24 +3268,43 @@ export function applyExtremePoseDeformer(
         maxMuscleBulgeM: 0,
         maxCapsulePushoutM: 0,
         elapsedMs: 0,
+        skippedRedundant: false,
       };
+      state.lastDeformationDiagnostics = res;
     } else {
       coupled = solveCoupledRigPose(figure, pose, options);
+      if (options?.onAfterPoseSolve) {
+        options.onAfterPoseSolve();
+        figure.root.updateMatrixWorld(true);
+      }
       res = evaluateSkinDeformation(figure, options);
     }
   } finally {
-    if (needsRootNormalize && savedPos && savedQuat && savedScale) {
-      root.position.copy(savedPos);
-      root.quaternion.copy(savedQuat);
-      root.scale.copy(savedScale);
+    if (needsRootNormalize) {
+      root.position.copy(_savedRootPos);
+      root.quaternion.copy(_savedRootQuat);
+      root.scale.copy(_savedRootScale);
       root.updateMatrixWorld(true);
-      figure.skins.forEach(skin => {
+      const curState = figureSkinStates.get(root);
+      for (let i = 0; i < figure.skins.length; i++) {
+        const skin = figure.skins[i]!;
         skin.skeleton.update();
-        skin.computeBoundingBox();
-        skin.computeBoundingSphere();
-      });
+        // mainSkin's exact tight local boundingBox & boundingSphere were already computed in evaluateSkinDeformation!
+        if (!curState?.activePassThrough || skin !== curState.mainSkin) {
+          skin.computeBoundingBox();
+          skin.computeBoundingSphere();
+        }
+      }
     }
   }
+
+  const finalState = figureSkinStates.get(root);
+  if (finalState && !options?.onAfterPoseSolve) {
+    const rev = (root.userData.__bodyProportionRevision as number) || 0;
+    const metaKey = buildAppliedPoseMetaKey(effectiveBodyType, options, rev, finalState.topology.weldCount);
+    recordAppliedPoseSignature(figure, pose, finalState, metaKey);
+  }
+
   const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now();
   res.coupled = coupled;
   res.elapsedMs = t1 - t0;
@@ -2924,6 +3312,49 @@ export function applyExtremePoseDeformer(
 }
 
 export const poseAndDeformFigure = applyExtremePoseDeformer;
+
+/**
+ * Stateful convenience wrapper around `applyExtremePoseDeformer` / `disableSkinDeformer`
+ * for explicit OOP deformer lifecycle & cache management.
+ */
+export class SkinDeformer {
+  readonly figure: Figure;
+  private readonly defaultOptions?: SkinDeformerOptions;
+
+  constructor(figure: Figure, defaultOptions?: SkinDeformerOptions) {
+    this.figure = figure;
+    this.defaultOptions = defaultOptions;
+  }
+
+  applyPose(pose: Pose, options?: SkinDeformerOptions): SkinDeformationDiagnostics {
+    const merged = options
+      ? this.defaultOptions
+        ? { ...this.defaultOptions, ...options }
+        : options
+      : this.defaultOptions;
+    return applyExtremePoseDeformer(this.figure, pose, merged);
+  }
+
+  deform(pose: Pose, options?: SkinDeformerOptions): SkinDeformationDiagnostics {
+    return this.applyPose(pose, options);
+  }
+
+  apply(pose: Pose, options?: SkinDeformerOptions): SkinDeformationDiagnostics {
+    return this.applyPose(pose, options);
+  }
+
+  invalidate(): void {
+    const state = figureSkinStates.get(this.figure.root);
+    if (state) {
+      state.hasCachedAppliedPose = false;
+      state.hasCachedDeformation = false;
+    }
+  }
+
+  dispose(): void {
+    disableSkinDeformer(this.figure);
+  }
+}
 
 /**
  * Disables CPU pass-through deformation on `figure` and restores `mainSkin` to standard morphed bind-pose

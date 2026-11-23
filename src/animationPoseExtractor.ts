@@ -2,6 +2,7 @@ import * as T from 'three';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { JOINTS, type Body, type Joint, type Pose, type Vec3 } from './model';
+import { adaptCanonicalPoseToMorphology } from './morphology-rig';
 import type { Figure } from './rig';
 
 export const ANIMATION_ACCEPT_EXTENSIONS = '.fbx,.glb,.gltf';
@@ -992,8 +993,15 @@ export function extractPoseAtFrame(
     targetBone.quaternion.copy(parentWorld.invert().multiply(desiredWorld).normalize());
     targetBone.updateMatrixWorld(true);
 
-    const restRot = options?.figure?.restRotations[joint] ?? cal.restRotations[joint];
-    const basis = options?.figure?.rotationBases[joint] ?? cal.rotationBases[joint];
+    const useMorphologyRetarget = Boolean(
+      options?.figure?.morphology && !options.figure.morphology.isCanonicalMannequin,
+    );
+    const restRot = useMorphologyRetarget
+      ? cal.restRotations[joint]
+      : (options?.figure?.restRotations[joint] ?? cal.restRotations[joint]);
+    const basis = useMorphologyRetarget
+      ? cal.rotationBases[joint]
+      : (options?.figure?.rotationBases[joint] ?? cal.rotationBases[joint]);
     const localDelta = restRot.clone().invert().multiply(targetBone.quaternion);
     const semanticQuat = basis.clone().invert().multiply(localDelta).multiply(basis).normalize();
     const euler = new T.Euler().setFromQuaternion(semanticQuat, 'XYZ');
@@ -1003,6 +1011,12 @@ export function extractPoseAtFrame(
       clampAngleRad(euler.z),
     ] as Vec3;
   }
+
+  const targetMorphology = options?.figure?.morphology;
+  const finalPose =
+    targetMorphology && !targetMorphology.isCanonicalMannequin
+      ? adaptCanonicalPoseToMorphology(pose, targetMorphology)
+      : pose;
 
   cal.root.updateMatrixWorld(true);
 
@@ -1030,7 +1044,7 @@ export function extractPoseAtFrame(
   restoreSourceSnapshots(profile);
 
   return {
-    pose,
+    pose: finalPose,
     frame,
     normalizedTime,
     timeSeconds,

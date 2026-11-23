@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { TooltipButton } from './studioTooltip';
 
 /* --- Studio SVG Icons (16x16, stroke-based, crisp at 1x/1.5x/2x DPI) --- */
 
@@ -90,6 +91,58 @@ export const Icons = {
     <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <rect x="4.2" y="3.3" width="2.7" height="9.4" rx="0.8" fill="currentColor" />
       <rect x="9.1" y="3.3" width="2.7" height="9.4" rx="0.8" fill="currentColor" />
+    </svg>
+  ),
+  eye: (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M1.6 8s2.3-4.2 6.4-4.2S14.4 8 14.4 8s-2.3 4.2-6.4 4.2S1.6 8 1.6 8Z" stroke="currentColor" strokeWidth="1.35" strokeLinejoin="round" />
+      <circle cx="8" cy="8" r="1.9" stroke="currentColor" strokeWidth="1.35" />
+    </svg>
+  ),
+  eyeOff: (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M2.4 2.4 13.6 13.6M6.5 4.1A6.6 6.6 0 0 1 8 3.8c4.1 0 6.4 4.2 6.4 4.2a11.3 11.3 0 0 1-2.2 2.7M4.2 5.3A11.3 11.3 0 0 0 1.6 8s2.3 4.2 6.4 4.2c.9 0 1.7-.2 2.4-.5" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  lock: (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="3.2" y="7.2" width="9.6" height="6.6" rx="1.5" stroke="currentColor" strokeWidth="1.35" />
+      <path d="M5.2 7.2V5.3a2.8 2.8 0 0 1 5.6 0v1.9" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" />
+    </svg>
+  ),
+  unlock: (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="3.2" y="7.2" width="9.6" height="6.6" rx="1.5" stroke="currentColor" strokeWidth="1.35" />
+      <path d="M5.2 7.2V5.3a2.8 2.8 0 0 1 5.2-1.4" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" />
+    </svg>
+  ),
+  chevronRight: (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="m6.2 4.2 3.8 3.8-3.8 3.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  room: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M2.4 7.3 8 2.6l5.6 4.7v6.1H2.4V7.3Z" stroke="currentColor" strokeWidth="1.35" strokeLinejoin="round" />
+      <path d="M6.4 13.4V9.4h3.2v4" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
+  ),
+  lightSpot: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="3.1" r="1.4" stroke="currentColor" strokeWidth="1.35" />
+      <path d="M6.9 4.3 3.1 12.6h9.8L9.1 4.3" stroke="currentColor" strokeWidth="1.35" strokeLinejoin="round" />
+    </svg>
+  ),
+  lightParallel: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M3 4.2h10M3 8h10M3 11.8h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="m10.8 2.4 2.2 1.8-2.2 1.8M10.8 6.2 13 8l-2.2 1.8M10.8 10 13 11.8l-2.2 1.8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  lightOmni: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="2.6" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M8 1.6v1.8M8 12.6v1.8M1.6 8h1.8M12.6 8h1.8M3.5 3.5l1.3 1.3M11.2 11.2l1.3 1.3M12.5 3.5l-1.3 1.3M4.8 11.2l-1.3 1.3" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" />
     </svg>
   ),
 };
@@ -189,12 +242,22 @@ export function SelectDropdown({
       if (triggerRef.current?.contains(target) || popoverRef.current?.contains(target)) return;
       setOpen(false);
     };
+    const onWindowKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+        triggerRef.current?.focus({ preventScroll: true });
+      }
+    };
     const onViewportChange = () => updatePosition();
     window.addEventListener('pointerdown', onPointerDown, true);
+    window.addEventListener('keydown', onWindowKeyDown, true);
     window.addEventListener('resize', onViewportChange);
     window.addEventListener('scroll', onViewportChange, true);
     return () => {
       window.removeEventListener('pointerdown', onPointerDown, true);
+      window.removeEventListener('keydown', onWindowKeyDown, true);
       window.removeEventListener('resize', onViewportChange);
       window.removeEventListener('scroll', onViewportChange, true);
     };
@@ -208,7 +271,7 @@ export function SelectDropdown({
     requestAnimationFrame(() => triggerRef.current?.focus());
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (!options.length) return;
     if (event.key === 'ArrowDown') {
       event.preventDefault();
@@ -285,6 +348,7 @@ export function SelectDropdown({
             role="listbox"
             aria-label={ariaLabel}
             className="select-popover"
+            onKeyDown={onKeyDown}
             style={{
               top: coords.top,
               bottom: coords.bottom,
@@ -376,7 +440,6 @@ export function SegmentedControl<T extends string>({
             key={item.value}
             type="button"
             aria-label={item.icon ? item.label : undefined}
-            title={item.icon ? item.label : undefined}
             disabled={disabled}
             role={role === 'tablist' ? 'tab' : undefined}
             aria-selected={role === 'tablist' ? active : undefined}
@@ -456,47 +519,265 @@ export function ListRow({
         </span>
       </button>
       {onDelete && (
-        <button
-          type="button"
+        <TooltipButton
           className="icon-btn danger-hover list-row-action"
           aria-label={deleteLabel ?? `Delete ${title}`}
-          title={deleteLabel ?? `Delete ${title}`}
+          tooltip={deleteLabel ?? `Delete ${title}`}
+          tooltipPlacement="top"
           onClick={event => {
             event.stopPropagation();
             onDelete();
           }}
         >
           {Icons.trash}
-        </button>
+        </TooltipButton>
       )}
+    </li>
+  );
+}
+
+export function LayerTreeRow({
+  icon,
+  title,
+  meta,
+  depth = 0,
+  isGroup = false,
+  expanded = false,
+  onToggleExpand,
+  selected = false,
+  visible = true,
+  locked = false,
+  inheritedLocked = false,
+  generatorEnabled,
+  onToggleGenerator,
+  extraActions,
+  onSelect,
+  onToggleVisible,
+  onToggleLock,
+  onDelete,
+  deleteLabel,
+}: {
+  icon: ReactNode;
+  title: string;
+  meta?: string;
+  depth?: 0 | 1 | 2;
+  isGroup?: boolean;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+  selected?: boolean;
+  visible?: boolean;
+  locked?: boolean;
+  inheritedLocked?: boolean;
+  generatorEnabled?: boolean;
+  onToggleGenerator?: () => void;
+  extraActions?: ReactNode;
+  onSelect?: (event: MouseEvent) => void;
+  onToggleVisible?: () => void;
+  onToggleLock?: () => void;
+  onDelete?: () => void;
+  deleteLabel?: string;
+}) {
+  const effectiveLocked = locked || inheritedLocked;
+  return (
+    <li
+      className={[
+        'layer-row',
+        depth === 2 ? 'layer-row-grandchild' : depth === 1 ? 'layer-row-child' : 'layer-row-root',
+        isGroup ? 'layer-row-group' : '',
+        selected ? 'selected' : '',
+        !visible || generatorEnabled === false ? 'layer-hidden' : '',
+        effectiveLocked ? 'layer-locked' : '',
+      ].filter(Boolean).join(' ')}
+      onClick={onSelect ?? onToggleExpand}
+    >
+      {onToggleExpand ? (
+        <button
+          type="button"
+          className="layer-chevron"
+          aria-label={expanded ? `Collapse ${title}` : `Expand ${title}`}
+          aria-expanded={expanded}
+          onClick={event => {
+            event.stopPropagation();
+            onToggleExpand();
+          }}
+        >
+          {expanded ? Icons.chevronDown : Icons.chevronRight}
+        </button>
+      ) : depth === 0 ? (
+        <span className="layer-chevron-spacer" aria-hidden="true" />
+      ) : null}
+      <button type="button" className="layer-row-main">
+        <span className="layer-row-badge">{icon}</span>
+        <span className="list-row-copy">
+          <span className="list-row-title">{title}</span>
+          {meta && <span className="list-row-meta">{meta}</span>}
+        </span>
+      </button>
+      <div className="layer-row-actions">
+        {extraActions}
+        {onToggleGenerator && (
+          <TooltipButton
+            className={`icon-btn layer-action-btn ${generatorEnabled === false ? 'is-off' : 'is-gen-on'}`}
+            aria-label={generatorEnabled === false ? `Enable ${title}` : `Disable ${title}`}
+            tooltip={generatorEnabled === false ? `Enable ${title}` : `Disable ${title}`}
+            tooltipDescription={
+              generatorEnabled === false ? 'Generator/Modifier off' : 'Generator/Modifier active'
+            }
+            tooltipPlacement="top"
+            aria-pressed={generatorEnabled !== false}
+            onClick={event => {
+              event.stopPropagation();
+              onToggleGenerator();
+            }}
+          >
+            {Icons.check}
+          </TooltipButton>
+        )}
+        {onToggleVisible && (
+          <TooltipButton
+            className={`icon-btn layer-action-btn ${!visible ? 'is-off' : ''}`}
+            aria-label={visible ? `Hide ${title}` : `Show ${title}`}
+            tooltip={visible ? `Hide ${title}` : `Show ${title}`}
+            tooltipPlacement="top"
+            aria-pressed={!visible}
+            onClick={event => {
+              event.stopPropagation();
+              onToggleVisible();
+            }}
+          >
+            {visible ? Icons.eye : Icons.eyeOff}
+          </TooltipButton>
+        )}
+        {onToggleLock && (
+          <TooltipButton
+            className={`icon-btn layer-action-btn ${effectiveLocked ? 'is-locked' : ''}`}
+            aria-label={locked ? `Unlock ${title}` : `Lock ${title}`}
+            tooltip={
+              inheritedLocked && !locked
+                ? `${title} locked by parent`
+                : locked
+                  ? `Unlock ${title}`
+                  : `Lock ${title}`
+            }
+            tooltipPlacement="top"
+            aria-pressed={effectiveLocked}
+            onClick={event => {
+              event.stopPropagation();
+              onToggleLock();
+            }}
+          >
+            {effectiveLocked ? Icons.lock : Icons.unlock}
+          </TooltipButton>
+        )}
+        {onDelete && (
+          <TooltipButton
+            className="icon-btn danger-hover layer-action-btn"
+            aria-label={deleteLabel ?? `Delete ${title}`}
+            tooltip={effectiveLocked ? `Unlock ${title} to delete` : (deleteLabel ?? `Delete ${title}`)}
+            tooltipPlacement="top"
+            disabled={effectiveLocked}
+            onClick={event => {
+              event.stopPropagation();
+              if (!effectiveLocked) onDelete();
+            }}
+          >
+            {Icons.trash}
+          </TooltipButton>
+        )}
+      </div>
     </li>
   );
 }
 
 /* --- 5. Unified ColorField, SliderField, and Vector3Field --- */
 
+export interface ColorSwatchOption {
+  value: string;
+  label: string;
+}
+
 export function ColorField({
   label,
   value,
   onChange,
+  resetValue,
+  resetLabel = 'Original',
+  swatches,
 }: {
   label: string;
   value: string;
   onChange: (hex: string) => void;
+  resetValue?: string;
+  resetLabel?: string;
+  swatches?: readonly ColorSwatchOption[];
 }) {
+  const isAtReset = Boolean(resetValue && value.toLowerCase() === resetValue.toLowerCase());
+  const showReset = Boolean(resetValue && !isAtReset);
   return (
-    <div className="color-field">
-      <span className="field-inline-label">{label}</span>
-      <label className="color-swatch-pill">
-        <span className="color-swatch-chip" style={{ backgroundColor: value }} aria-hidden="true" />
-        <span className="color-swatch-hex">{value.toUpperCase()}</span>
-        <input
-          type="color"
-          aria-label={label}
-          value={value}
-          onChange={e => onChange(e.target.value)}
-        />
-      </label>
+    <div className={swatches?.length ? 'color-field color-field-with-swatches' : 'color-field'}>
+      <div className="color-field-row">
+        <span className="field-inline-label">{label}</span>
+        <div className="color-field-controls">
+          {showReset && resetValue && (
+            <button
+              type="button"
+              className="color-reset-btn"
+              onClick={() => onChange(resetValue)}
+              aria-label={`Reset ${label} to original`}
+            >
+              {resetLabel}
+            </button>
+          )}
+          <label className="color-swatch-pill">
+            <span
+              className={isAtReset ? 'color-swatch-chip is-original' : 'color-swatch-chip'}
+              style={isAtReset ? undefined : { backgroundColor: value }}
+              aria-hidden="true"
+            />
+            <span className="color-swatch-hex">{isAtReset ? resetLabel : value.toUpperCase()}</span>
+            <input
+              type="color"
+              aria-label={label}
+              value={value}
+              onChange={e => onChange(e.target.value)}
+            />
+          </label>
+        </div>
+      </div>
+      {swatches && swatches.length > 0 && (
+        <div className="color-quick-swatches" role="group" aria-label={`${label} presets`}>
+          {swatches.map(swatch => {
+            const active = value.toLowerCase() === swatch.value.toLowerCase();
+            const isOriginalSwatch = Boolean(
+              resetValue &&
+                resetLabel === 'Original' &&
+                swatch.value.toLowerCase() === resetValue.toLowerCase(),
+            );
+            const swatchClass = [
+              'color-quick-swatch',
+              isOriginalSwatch ? 'is-original' : '',
+              active ? 'active' : '',
+            ]
+              .filter(Boolean)
+              .join(' ');
+            return (
+              <TooltipButton
+                key={`${swatch.label}-${swatch.value}`}
+                className={swatchClass}
+                style={isOriginalSwatch ? undefined : { backgroundColor: swatch.value }}
+                tooltip={swatch.label}
+                tooltipDescription={
+                  isOriginalSwatch ? 'Untouched source texture' : swatch.value.toUpperCase()
+                }
+                tooltipPlacement="top"
+                aria-label={`${label}: ${swatch.label}`}
+                aria-pressed={active}
+                onClick={() => onChange(swatch.value)}
+              />
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -550,6 +831,7 @@ export function NumericField({
   max,
   step = 0.05,
   precision = 4,
+  disabled = false,
   onChange,
 }: {
   label?: string;
@@ -560,6 +842,7 @@ export function NumericField({
   max: number;
   step?: number;
   precision?: number;
+  disabled?: boolean;
   onChange: (v: number) => void;
 }) {
   const format = (v: number) => String(Number(v.toFixed(precision)));
@@ -572,6 +855,7 @@ export function NumericField({
   }, [value, precision]);
 
   const apply = () => {
+    if (disabled) return;
     if (draft === format(value)) return;
     const n = Number(draft);
     if (!draft.trim() || !Number.isFinite(n) || n < min || n > max) {
@@ -585,12 +869,13 @@ export function NumericField({
   return (
     <div className={prefix ? 'num-cell' : 'num-field'}>
       {label && <span className="field-label">{label}</span>}
-      <label className={invalid ? 'num-shell invalid' : 'num-shell'}>
+      <label className={`num-shell${invalid ? ' invalid' : ''}${disabled ? ' disabled' : ''}`}>
         {prefix && <span className="vec-axis">{prefix}</span>}
         <input
           type="number"
           aria-label={ariaLabel}
           aria-invalid={invalid}
+          disabled={disabled}
           min={min}
           max={max}
           step={step}
@@ -601,7 +886,13 @@ export function NumericField({
           }}
           onBlur={apply}
           onKeyDown={e => {
-            if (e.key === 'Enter') e.currentTarget.blur();
+            if (e.key === 'Enter') {
+              e.currentTarget.blur();
+            } else if (e.key === 'Escape') {
+              setDraft(format(value));
+              setInvalid(false);
+              e.currentTarget.blur();
+            }
           }}
         />
       </label>
@@ -621,6 +912,7 @@ export function Vector3Field({
   max = 100,
   step = 0.05,
   precision = 2,
+  disabled = false,
   onChange,
   onReset,
 }: {
@@ -630,6 +922,7 @@ export function Vector3Field({
   max?: number;
   step?: number;
   precision?: number;
+  disabled?: boolean;
   onChange: (v: [number, number, number]) => void;
   onReset?: () => void;
 }) {
@@ -638,7 +931,7 @@ export function Vector3Field({
       <div className="field-head">
         <span className="field-label">{label}</span>
         {onReset && (
-          <button type="button" className="text-btn" onClick={onReset}>
+          <button type="button" className="text-btn" disabled={disabled} onClick={onReset}>
             Reset
           </button>
         )}
@@ -654,6 +947,7 @@ export function Vector3Field({
             max={max}
             step={step}
             precision={precision}
+            disabled={disabled}
             onChange={n => {
               const next: [number, number, number] = [...value];
               next[i] = n;

@@ -1,0 +1,10 @@
+Women in Nightgown by work of Pseudonym
+https://sketchfab.com/models/06a185b36435427baec8d510bdcffccb
+Source and adapted Nightgown.glb: Creative Commons Attribution-ShareAlike 4.0
+https://creativecommons.org/licenses/by-sa/4.0/
+
+Changes for Pose & Composition: converted FBX to glTF, normalized skin
+weights to four influences, resized and relinked project textures, made
+the gown opaque, omitted externally referenced eye, dental, brow and lash
+components, and fitted new eye geometry. Body, head, gown, choker and
+weighted hair remain from the artist's model. No endorsement implied.

@@ -90,11 +90,12 @@ function recipe(sex, type) {
       add(`macrodetails/${ethnicity}-${sex}-${a}`, amount * blend[ethnicity]);
     }
     if (type === 'realistic') {
-      add(`macrodetails/universal-${sex}-${a}-averagemuscle-averageweight`, amount * 0.62);
-      add(`macrodetails/universal-${sex}-${a}-maxmuscle-averageweight`, amount * 0.38);
+      add(`macrodetails/universal-${sex}-${a}-averagemuscle-averageweight`, amount * (sex === 'female' ? 0.88 : 0.72));
+      add(`macrodetails/universal-${sex}-${a}-maxmuscle-averageweight`, amount * (sex === 'female' ? 0.12 : 0.28));
     } else if (type === 'heroic') {
-      add(`macrodetails/universal-${sex}-${a}-maxmuscle-averageweight`, amount * (sex === 'male' ? 0.78 : 0.72));
-      add(`macrodetails/universal-${sex}-${a}-maxmuscle-minweight`, amount * (sex === 'male' ? 0.08 : 0.28));
+      add(`macrodetails/universal-${sex}-${a}-maxmuscle-averageweight`, amount * (sex === 'male' ? 0.78 : 0.58));
+      add(`macrodetails/universal-${sex}-${a}-averagemuscle-averageweight`, amount * (sex === 'male' ? 0.0 : 0.26));
+      add(`macrodetails/universal-${sex}-${a}-maxmuscle-minweight`, amount * (sex === 'male' ? 0.08 : 0.16));
       if (sex === 'male') add(`macrodetails/universal-${sex}-${a}-maxmuscle-maxweight`, amount * 0.14);
     } else if (['chubby', 'fat', 'obese'].includes(type)) {
       const heavy = { chubby: 0.44, fat: 0.82, obese: 1.16 }[type];
@@ -107,33 +108,56 @@ function recipe(sex, type) {
   }
   if (['realistic', 'heroic', 'lean', 'busty'].includes(type)) {
     const idealWeight = {
-      realistic: sex === 'female' ? 0.58 : 0.52,
-      heroic: sex === 'female' ? 0.82 : 0.90,
-      lean: 0.48,
-      busty: sex === 'female' ? 0.45 : 0.65,
+      realistic: sex === 'female' ? 0.18 : 0.44,
+      heroic: sex === 'female' ? 0.52 : 0.90,
+      lean: sex === 'female' ? 0.26 : 0.48,
+      busty: sex === 'female' ? 0.28 : 0.65,
     }[type];
     add(`macrodetails/proportions/${sex}-young-maxmuscle-averageweight-idealproportions`, idealWeight);
   }
   if (type === 'slender') {
     add(`macrodetails/proportions/${sex}-young-minmuscle-minweight-idealproportions`, 0.72);
+    add('hip/hip-scale-horiz-incr', sex === 'male' ? -0.22 : -0.16);
+  }
+  if (sex === 'female' && type !== 'chibi') {
+    // Anatomically grounded CC0 MakeHuman female breast proportions across all adult builds
+    const cupAvg = {
+      realistic: 0.30, heroic: 0.26, lean: 0.20, slender: 0.17,
+      busty: 0.74, chubby: 0.38, fat: 0.44, obese: 0.50,
+    }[type] ?? 0.30;
+    const cupFirm = {
+      realistic: 0.17, heroic: 0.21, lean: 0.16, slender: 0.13,
+      busty: 0.28, chubby: 0.11, fat: 0.09, obese: 0.08,
+    }[type] ?? 0.16;
+    const pointRound = {
+      realistic: 0.34, heroic: 0.32, lean: 0.26, slender: 0.22,
+      busty: 0.62, chubby: 0.36, fat: 0.40, obese: 0.44,
+    }[type] ?? 0.32;
+    add('breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness', cupAvg);
+    add('breast/female-young-averagemuscle-averageweight-maxcup-maxfirmness', cupFirm);
+    add('breast/breast-point-decr', pointRound);
   }
   if (type === 'realistic') {
-    add('torso/torso-vshape-incr', sex === 'male' ? 0.22 : 0.08);
-    if (sex === 'female') add('hip/hip-scale-horiz-incr', 0.12);
+    add('torso/torso-vshape-incr', sex === 'male' ? 0.28 : 0.10);
+    if (sex === 'male') {
+      add('torso/torso-scale-horiz-incr', 0.07);
+      add('torso/torso-scale-depth-incr', 0.05);
+      add('hip/hip-scale-horiz-incr', -0.06);
+    } else {
+      add('hip/hip-scale-horiz-incr', -0.08);
+    }
   }
   if (type === 'heroic') {
-    add('torso/torso-vshape-incr', sex === 'male' ? 0.52 : 0.22);
-    add('torso/torso-scale-horiz-incr', sex === 'male' ? 0.18 : 0.08);
-    add('torso/torso-scale-depth-incr', sex === 'male' ? 0.16 : 0.06);
+    add('torso/torso-vshape-incr', sex === 'male' ? 0.52 : 0.20);
+    add('torso/torso-scale-horiz-incr', sex === 'male' ? 0.18 : 0.06);
+    add('torso/torso-scale-depth-incr', sex === 'male' ? 0.16 : 0.04);
   }
   if (type === 'lean') {
     add('torso/torso-vshape-incr', sex === 'male' ? 0.28 : 0.10);
+    add('hip/hip-scale-horiz-incr', sex === 'male' ? -0.10 : -0.12);
   }
   if (type === 'busty') {
     if (sex === 'female') {
-      add('breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness', 0.88);
-      add('breast/female-young-averagemuscle-averageweight-maxcup-maxfirmness', 0.24);
-      add('breast/breast-point-decr', 0.82);
       add('hip/hip-scale-horiz-incr', 0.24);
     } else {
       add('torso/torso-vshape-incr', 0.34);
@@ -161,8 +185,8 @@ function recipe(sex, type) {
     add('chin/chin-height-decr', 0.1);
     add('nose/nose-scale-depth-decr', 0.15);
   }
-  add('breast/nipple-size-decr', 1);
-  add('breast/nipple-point-decr', 1);
+  add('breast/nipple-size-decr', sex === 'female' ? 0.82 : 1);
+  add('breast/nipple-point-decr', sex === 'female' ? 0.78 : 1);
   return result;
 }
 
@@ -328,28 +352,32 @@ function realignProportionedRest(meshes, bones, names, parents) {
   bones.forEach((bone, i) => bone.copy(posed[i]));
 }
 
-function splitMesh(faces, points, uv, influences, originalCount) {
-  const keys = new Map(), positions = [], uvs = [], joints = [], weights = [], indices = [], weld = [];
-  for (const { face } of faces) {
+function splitMesh(faces, points, uv, influences, originalCount, faceDressSides = null) {
+  const keys = new Map(), positions = [], uvs = [], joints = [], weights = [], indices = [], weld = [], dressSides = [];
+  faces.forEach(({ face }, fi) => {
+    const side = faceDressSides ? faceDressSides[fi] : 0;
     const ids = face.map(([vi, ti]) => {
-      const key = `${vi}/${ti}`;
+      const key = faceDressSides ? `${vi}/${ti}/${side}` : `${vi}/${ti}`;
       if (!keys.has(key)) {
         keys.set(key, keys.size);
         positions.push(...points[vi].toArray());
         uvs.push(uv[ti]?.[0] || 0, 1 - (uv[ti]?.[1] || 0));
         weld.push(vi);
+        dressSides.push(side);
         const inf = influences[vi];
         for (let k = 0; k < 4; k++) { joints.push(inf[k]?.[0] || 0); weights.push(inf[k]?.[1] || 0); }
       }
       return keys.get(key);
     });
     for (let k = 1; k < ids.length - 1; k++) indices.push(ids[0], ids[k], ids[k + 1]);
-  }
-  assert(keys.size <= 65535, 'Mesh exceeds uint16 index range');
+  });
+  assert(keys.size <= 65535, `Mesh exceeds uint16 index range (${keys.size})`);
   const mesh = {
     position: new Float32Array(positions), uv: new Float32Array(uvs),
     joints: new Uint16Array(joints), weights: new Float32Array(weights),
-    indices: new Uint16Array(indices), weld: new Uint16Array(weld), originalCount,
+    indices: new Uint16Array(indices), weld: new Uint16Array(weld),
+    dressSide: faceDressSides ? new Uint8Array(dressSides) : null,
+    originalCount,
   };
   mesh.normal = normals(mesh);
   return mesh;
@@ -486,30 +514,128 @@ function sculptAdultProportions(points, base, rig, sex, type) {
   const hlEye = base.groups.get('helper-l-eye'), hrEye = base.groups.get('helper-r-eye');
   const eyeC = [hlEye, hrEye].map(g => centroid(points, g));
 
-  // Smooth adult figure-drawing contour refinement: clean waist taper, pelvic/hip curve, athletic chest/shoulder & ankle/calf taper
+  // Smooth adult figure-drawing contour refinement: clean shoulder girdle, neck column, waist taper, pelvic/hip curve, and limb tapers
   const waistScaleX = sex === 'female'
-    ? ({ realistic: 0.90, heroic: 0.89, lean: 0.91, slender: 0.89, busty: 0.89, chubby: 0.96, fat: 0.985, obese: 1.0 }[type] ?? 0.92)
-    : ({ realistic: 0.94, heroic: 0.91, lean: 0.93, slender: 0.93, busty: 0.93, chubby: 0.98, fat: 1.0, obese: 1.0 }[type] ?? 0.95);
+    ? ({ realistic: 0.865, heroic: 0.86, lean: 0.885, slender: 0.87, busty: 0.865, chubby: 0.96, fat: 0.985, obese: 1.0 }[type] ?? 0.90)
+    : ({ realistic: 0.925, heroic: 0.895, lean: 0.915, slender: 0.915, busty: 0.92, chubby: 0.98, fat: 1.0, obese: 1.0 }[type] ?? 0.94);
   const waistScaleZ = sex === 'female'
-    ? ({ realistic: 0.93, heroic: 0.92, lean: 0.93, slender: 0.92, busty: 0.93, chubby: 0.98, fat: 1.0, obese: 1.0 }[type] ?? 0.94)
-    : ({ realistic: 0.95, heroic: 0.93, lean: 0.94, slender: 0.94, busty: 0.95, chubby: 0.99, fat: 1.0, obese: 1.0 }[type] ?? 0.96);
+    ? ({ realistic: 0.915, heroic: 0.91, lean: 0.92, slender: 0.91, busty: 0.92, chubby: 0.98, fat: 1.0, obese: 1.0 }[type] ?? 0.93)
+    : ({ realistic: 0.94, heroic: 0.925, lean: 0.935, slender: 0.935, busty: 0.945, chubby: 0.99, fat: 1.0, obese: 1.0 }[type] ?? 0.95);
   const hipFlareX = sex === 'female'
-    ? ({ realistic: 1.035, heroic: 1.03, lean: 1.02, slender: 1.02, busty: 1.045, chubby: 1.025, fat: 1.015, obese: 1.01 }[type] ?? 1.03)
-    : ({ realistic: 0.99, heroic: 0.975, lean: 0.985, slender: 0.985, busty: 0.98, chubby: 1.0, fat: 1.0, obese: 1.0 }[type] ?? 0.99);
+    ? ({ realistic: 0.935, heroic: 0.945, lean: 0.915, slender: 0.895, busty: 0.965, chubby: 0.99, fat: 1.005, obese: 1.01 }[type] ?? 0.935)
+    : ({ realistic: 0.965, heroic: 0.955, lean: 0.94, slender: 0.905, busty: 0.96, chubby: 0.995, fat: 1.0, obese: 1.0 }[type] ?? 0.96);
   const ribLatScaleX = sex === 'male'
-    ? ({ realistic: 1.03, heroic: 1.085, lean: 1.045, slender: 1.0, busty: 1.07, chubby: 1.02, fat: 1.01, obese: 1.0 }[type] ?? 1.03)
-    : ({ realistic: 1.01, heroic: 1.045, lean: 1.02, slender: 0.99, busty: 1.02, chubby: 1.0, fat: 1.0, obese: 1.0 }[type] ?? 1.01);
+    ? ({ realistic: 1.06, heroic: 1.11, lean: 1.045, slender: 0.99, busty: 1.085, chubby: 1.025, fat: 1.015, obese: 1.005 }[type] ?? 1.04)
+    : ({ realistic: 1.03, heroic: 1.08, lean: 1.02, slender: 0.985, busty: 1.035, chubby: 1.005, fat: 1.0, obese: 1.0 }[type] ?? 1.02);
+  const shoulderGirdleX = sex === 'male'
+    ? ({ realistic: 1.032, heroic: 1.125, lean: 1.02, slender: 0.945, busty: 1.075, chubby: 1.01, fat: 1.005, obese: 1.0 }[type] ?? 1.02)
+    : ({ realistic: 0.972, heroic: 1.115, lean: 0.995, slender: 0.925, busty: 0.99, chubby: 0.99, fat: 0.995, obese: 1.0 }[type] ?? 0.98);
+  const neckSlim = sex === 'female'
+    ? ({ realistic: 0.935, heroic: 0.95, lean: 0.93, slender: 0.915, busty: 0.94 }[type] ?? 0.97)
+    : ({ realistic: 0.96, heroic: 0.985, lean: 0.95, slender: 0.93, busty: 0.99 }[type] ?? 0.98);
+  // Also scale upperarm/clavicle joint helper cubes above N so skeleton shoulder sockets match sculpted girdle
+  for (const side of ['l', 'r']) {
+    for (const grpName of [`helper-${side}-upperarm`, `helper-${side}-clavicle`]) {
+      const grp = base.groups.get(grpName);
+      if (!grp || shoulderGirdleX === 1) continue;
+      for (const idx of grp) points[idx][0] *= shoulderGirdleX;
+    }
+  }
+  const headY = endpoint(rig.head.head, points, base).y;
+  const clavicleY = endpoint(rig.clavicle_l.head, points, base).y;
+  const wristX = Math.abs(endpoint(rig.hand_l.head, points, base).x);
+  const elbowX = Math.abs(endpoint(rig.lowerarm_l.head, points, base).x);
 
   for (let i = 0; i < N; i++) {
     const p = points[i];
     const [x, y, z] = p;
-    const torsoCore = 1 - smooth(1.62, 2.05, Math.abs(x));
-    if (torsoCore > 0 && y > pelvisY - 1.2 && y < neckY - 0.15) {
-      const waistBell = Math.exp(-(((y - (spine2Y + 0.38)) / 0.88) ** 2)) * torsoCore;
-      const hipBell = Math.exp(-(((y - (pelvisY - 0.18)) / 0.82) ** 2)) * torsoCore;
-      const latBell = Math.exp(-(((y - (chestY + 1.05)) / 1.05) ** 2)) * torsoCore;
+    const ax = Math.abs(x);
+    // Clean shoulder girdle span (carries clavicles, acromion, and arms coherently without pinching axilla)
+    if (shoulderGirdleX !== 1 && y > chestY - 0.15 && y < neckY + 0.25) {
+      const girdleY = smooth(chestY - 0.15, chestY + 0.65, y) * (1 - smooth(neckY - 0.05, neckY + 0.25, y));
+      const armReach = smooth(0.45, 1.55, ax);
+      p[0] *= 1 + (shoulderGirdleX - 1) * girdleY * armReach;
+    } else if (shoulderGirdleX !== 1 && ax > 1.55 && y > pelvisY - 0.8 && y <= chestY - 0.15) {
+      // Keep hanging lower-arm/hand aligned with adjusted shoulder socket
+      const armMask = smooth(1.55, 1.95, ax);
+      p[0] += Math.sign(x) * (shoulderGirdleX - 1) * 1.78 * armMask;
+    }
+    // Graceful cylindrical neck taper into trapezius (eliminates blocky neck base)
+    if (neckSlim !== 1 && y > neckY - 0.18 && y < headY + 0.08 && ax < 0.95) {
+      const neckBell = Math.exp(-(((y - (neckY + (headY - neckY) * 0.48)) / 0.42) ** 2)) * (1 - smooth(0.68, 0.95, ax));
+      p[0] *= 1 + (neckSlim - 1) * neckBell;
+      p[2] *= 1 + (neckSlim - 1) * 0.75 * neckBell;
+    }
+    const torsoCore = 1 - smooth(1.58, 1.98, ax);
+    if (torsoCore > 0 && y > pelvisY - 1.35 && y < neckY - 0.15) {
+      const waistBell = Math.exp(-(((y - (spine2Y + 0.38)) / 0.86) ** 2)) * torsoCore;
+      const hipBell = Math.exp(-(((y - (pelvisY - 0.22)) / 0.92) ** 2)) * torsoCore;
+    // On female builds, keep lat/ribcage X expansion on posterior/lateral ribs so anterior breasts aren't pulled into the armpits
+    const ribMask = sex === 'female' ? torsoCore * (1 - 0.82 * smooth(0.22, 0.72, z)) : torsoCore;
+    const latBell = Math.exp(-(((y - (chestY + 1.02)) / 1.02) ** 2)) * ribMask;
       p[0] *= (1 + (waistScaleX - 1) * waistBell) * (1 + (hipFlareX - 1) * hipBell) * (1 + (ribLatScaleX - 1) * latBell);
       p[2] *= (1 + (waistScaleZ - 1) * waistBell);
+    }
+  // Anatomically grounded female ribcage & teardrop bust contour:
+  // - Smooth upper-pole ramp starting gradually at the 2nd-3rd rib below the clavicles (zero shelf)
+  // - Natural gravity-settled lower/slightly-lateral 4th-5th rib fullness + curved inframammary fold
+  // - Clean ~2.2 cm sternum valley (never fused into uniboob, never caved in) & smooth anterior axillary blend
+  if (sex === 'female' && z > 0.10 && y > chestY + 0.18 && y < clavicleY + 0.22 && ax < 1.48) {
+    const bustScale = ({
+      realistic: 0.78, heroic: 0.76, lean: 0.60, slender: 0.52,
+      busty: 1.30, chubby: 0.92, fat: 0.98, obese: 1.04,
+    }[type] ?? 0.78);
+    const frontWeight = smooth(0.18, 0.62, z);
+    // Curved inframammary crease (rises gently medially toward sternum & laterally toward 5th rib/axilla)
+    const imfCurveY = (chestY + 0.40) + 0.17 * (((ax - 0.80) / 0.50) ** 2);
+    const upperTopY = clavicleY + 0.08;
+    const spanY = Math.max(0.65, upperTopY - imfCurveY);
+    const uY = (y - imfCurveY) / spanY;
+
+    // Gently gather laterally-splayed MakeHuman chest tissue toward natural pectoral axis (|x| ≈ 8.2 cm)
+    if (uY > -0.05 && uY < 0.95 && ax > 0.26 && ax < 1.36) {
+      const gatherY = smooth(-0.05, 0.18, uY) * (1 - smooth(0.68, 0.95, uY));
+      const gatherX = smooth(0.26, 0.55, ax) * (1 - smooth(1.08, 1.36, ax));
+      p[0] -= Math.sign(x) * (ax - 0.76) * 0.13 * gatherY * gatherX * frontWeight;
+    }
+
+    const curAx = Math.abs(p[0]);
+    if (uY > -0.12 && uY < 1.0) {
+      // Vertical teardrop profile: full rounded lower pole (uY in 0..0.34), gradual C1 taper up to 2nd rib (0.34..1.0)
+      let profileY = 0;
+      if (uY >= 0 && uY <= 0.34) {
+        profileY = Math.sin((uY / 0.34) * Math.PI * 0.5) ** 0.82;
+      } else if (uY > 0.34 && uY < 1.0) {
+        const t = (uY - 0.34) / 0.66;
+        profileY = ((1 - t) ** 2) * (1 + 1.15 * t);
+      }
+      // Horizontal mammary dome centered at |x| = 0.78 dm (7.8 cm), zero at sternum (|x| <= 0.13 dm) and axilla (|x| >= 1.24 dm)
+      const medialRamp = smooth(0.13, 0.50, curAx);
+      const lateralRamp = 1 - smooth(0.78, 1.24, curAx);
+      const outerBias = 1 + 0.10 * clamp((curAx - 0.76) / 0.32, -0.5, 1);
+      const mound = profileY * medialRamp * lateralRamp * outerBias * frontWeight;
+
+      // Add subtle teardrop fullness + natural slight lateral cant + gentle gravity lower-pole settle
+      p[2] += 0.145 * bustScale * mound;
+      p[0] += Math.sign(x) * 0.016 * bustScale * mound * smooth(0.65, 1.02, curAx);
+      p[1] -= 0.024 * bustScale * mound * (1 - smooth(0.15, 0.58, uY));
+
+      // Subtle curved inframammary fold definition right along uY ≈ 0
+      const imfCrease = Math.exp(-((uY / 0.075) ** 2)) * smooth(0.24, 0.52, curAx) * (1 - smooth(1.02, 1.26, curAx)) * frontWeight;
+      p[2] -= 0.018 * bustScale * imfCrease;
+
+      // Clean anatomical sternum valley (~2.0-2.4 cm medial separation so mounds never bridge into a uniboob)
+      const sternalMask = (1 - smooth(0.08, 0.28, curAx)) * smooth(0.06, 0.25, uY) * (1 - smooth(0.58, 0.85, uY)) * frontWeight;
+      p[2] -= 0.024 * bustScale * sternalMask;
+    }
+  }
+    // Subtle forearm-to-wrist studio taper (prevents tubular wrists in MakeHuman base)
+    if (ax > elbowX - 0.25 && ax < wristX + 0.35 && y > pelvisY + 0.2 && y < neckY - 0.1) {
+      const wristT = smooth(elbowX + 0.1, wristX, ax);
+      const wristTrim = (sex === 'female' ? 0.065 : 0.045) * wristT * (1 - smooth(wristX + 0.05, wristX + 0.35, ax));
+      if (wristTrim > 0 && !['chubby', 'fat', 'obese'].includes(type)) {
+        p[2] *= 1 - wristTrim;
+      }
     }
     // Athletic thigh fullness + knee taper (matches classic figure-drawing quadriceps/vastus sweep)
     if (y > kneeY - 0.35 && y < pelvisY + 0.25 && Math.abs(x) < 1.65) {
@@ -580,9 +706,10 @@ function refineSurface(vertices, faces, neckY, type, sex) {
     ...targets.get('breast/nipple-point-decr').map(([i]) => i),
   ]);
   let region = new Map([...nipple].map(i => [i, 1]));
-  for (let ring = 0; ring < 3; ring++) {
+  const nippleRings = sex === 'female' ? 1 : 3;
+  for (let ring = 0; ring < nippleRings; ring++) {
     const next = new Map(region);
-    for (const [i, amount] of region) for (const j of adjacent[i]) next.set(j, Math.max(next.get(j) || 0, amount * 0.62));
+    for (const [i, amount] of region) for (const j of adjacent[i]) next.set(j, Math.max(next.get(j) || 0, amount * 0.48));
     region = next;
   }
   const positions = Float64Array.from(vertices.flatMap(p => p.toArray()));
@@ -600,14 +727,16 @@ function refineSurface(vertices, faces, neckY, type, sex) {
   }
   if (type === 'busty' && sex === 'female') {
     let bust = new Map(targets.get('breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness').filter(([i]) => i < N).map(([i]) => [i, 1]));
-    for (let ring = 0; ring < 3; ring++) {
+    for (let ring = 0; ring < 2; ring++) {
       const next = new Map(bust);
-      for (const [i, amount] of bust) for (const j of adjacent[i]) next.set(j, Math.max(next.get(j) || 0, amount * 0.5));
+      for (const [i, amount] of bust) for (const j of adjacent[i]) next.set(j, Math.max(next.get(j) || 0, amount * 0.45));
       bust = next;
     }
-    for (let iteration = 0; iteration < 12; iteration++) pass(0.32, i => bust.get(i) || 0);
+    for (let iteration = 0; iteration < 6; iteration++) pass(0.24, i => bust.get(i) || 0);
   }
-  for (let iteration = 0; iteration < 16; iteration++) pass(0.45, i => region.get(i) || 0);
+  const nipplePasses = sex === 'female' ? 5 : 16;
+  const nippleFactor = sex === 'female' ? 0.26 : 0.45;
+  for (let iteration = 0; iteration < nipplePasses; iteration++) pass(nippleFactor, i => region.get(i) || 0);
   if (type === 'chibi') {
     for (let iteration = 0; iteration < 30; iteration++) pass(0.4, i => 1 - smooth(neckY - 0.3, neckY + 0.05, vertices[i].y));
     for (let iteration = 0; iteration < 12; iteration++) pass(0.35, i => smooth(neckY - 0.1, neckY + 0.08, vertices[i].y));
@@ -989,9 +1118,8 @@ function bodyTexture(base, points, sex, rig, names, cleanFace = false) {
     const navel = Math.exp(-((x / 0.058) ** 2 + ((y - pelvis - 1.14) / 0.062) ** 2)) * smooth(0.2, 0.9, z);
     const lineaAlba = Math.exp(-((x / 0.045) ** 2)) * smooth(pelvis + 0.6, pelvis + 1.1, y) * (1 - smooth(chest + 0.2, chest + 0.7, y)) * smooth(0.4, 1.1, z);
     const clavicleHollow = Math.exp(-(((ax - 0.68) / 0.45) ** 2 + ((y - clavicle - 0.08) / 0.14) ** 2)) * smooth(-0.1, 0.5, z);
-    // Crisp seam/piping trim along garment edges so the outfit reads like tailored studio athletic wear
-    const seamEdge = 4 * mask * (1 - mask);
-    const gray = 232 - 17 * lips - 9 * eyeSocket - 9 * navel - 4.5 * lineaAlba - 4 * clavicleHollow - 7 * seamEdge;
+    // Pure unblemished skin tonal shading (no garment seam scars baked into skin RGB, so unclothed & custom dress maps render cleanly!)
+    const gray = 232 - 17 * lips - 9 * eyeSocket - 9 * navel - 4.5 * lineaAlba - 4 * clavicleHollow;
     return [clamp(gray, 194, 232), Math.round(mask * 255)];
   }
   for (const { group, face } of base.faces) {
@@ -1032,6 +1160,240 @@ function bodyTexture(base, points, sex, rig, names, cleanFace = false) {
     covered.set(next);
   }
   return png(size, size, rgba);
+}
+
+function computeCoronalFaceSides(subdivided, bones, names) {
+  const wCount = subdivided.vertices.length;
+  const fCount = subdivided.faces.length;
+  const adjacent = Array.from({ length: wCount }, () => new Set());
+  const wNorm = Array.from({ length: wCount }, () => new T.Vector3());
+  const edgeToFaces = new Map();
+  const faceNeighbors = Array.from({ length: fCount }, () => []);
+
+  subdivided.faces.forEach(({ face }, fi) => {
+    for (let i = 0; i < face.length; i++) {
+      const a = face[i][0], b = face[(i + 1) % face.length][0];
+      adjacent[a].add(b); adjacent[b].add(a);
+      const eKey = a < b ? `${a}/${b}` : `${b}/${a}`;
+      const prev = edgeToFaces.get(eKey);
+      if (prev !== undefined) {
+        faceNeighbors[fi].push(prev);
+        faceNeighbors[prev].push(fi);
+      } else {
+        edgeToFaces.set(eKey, fi);
+      }
+    }
+    for (let k = 1; k < face.length - 1; k++) {
+      const va = subdivided.vertices[face[0][0]];
+      const vb = subdivided.vertices[face[k][0]];
+      const vc = subdivided.vertices[face[k + 1][0]];
+      const fn = vb.clone().sub(va).cross(vc.clone().sub(va));
+      wNorm[face[0][0]].add(fn);
+      wNorm[face[k][0]].add(fn);
+      wNorm[face[k + 1][0]].add(fn);
+    }
+  });
+  wNorm.forEach(n => n.normalize());
+
+  const wArmL = new Float32Array(wCount), wArmR = new Float32Array(wCount);
+  const wLegL = new Float32Array(wCount), wLegR = new Float32Array(wCount);
+  for (let w = 0; w < wCount; w++) {
+    for (const [bIdx, wt] of subdivided.influences[w]) {
+      const bName = names[bIdx] || '';
+      if (!wt) continue;
+      if (/^(upperarm|lowerarm|hand|thumb|index|middle|ring|pinky)_.*_l$/.test(bName) || /^(upperarm|lowerarm|hand)_l$/.test(bName)) wArmL[w] += wt;
+      if (/^(upperarm|lowerarm|hand|thumb|index|middle|ring|pinky)_.*_r$/.test(bName) || /^(upperarm|lowerarm|hand)_r$/.test(bName)) wArmR[w] += wt;
+      if (/^(thigh|calf|foot|ball)_l$/.test(bName)) wLegL[w] += wt;
+      if (/^(thigh|calf|foot|ball)_r$/.test(bName)) wLegR[w] += wt;
+    }
+  }
+
+  const smoothScalar = (arr, passes) => {
+    let cur = Float32Array.from(arr), next = new Float32Array(wCount);
+    for (let p = 0; p < passes; p++) {
+      for (let w = 0; w < wCount; w++) {
+        let sum = cur[w];
+        for (const nb of adjacent[w]) sum += cur[nb];
+        next[w] = sum / (adjacent[w].size + 1);
+      }
+      [cur, next] = [next, cur];
+    }
+    return cur;
+  };
+
+  const sArmL = smoothScalar(wArmL, 8);
+  const sArmR = smoothScalar(wArmR, 8);
+  const sLegL = smoothScalar(wLegL, 6);
+  const sLegR = smoothScalar(wLegR, 6);
+
+  const pivArmL = bones[names.indexOf('upperarm_l')];
+  const pivArmR = bones[names.indexOf('upperarm_r')];
+  const pivLegL = bones[names.indexOf('thigh_l')];
+  const pivLegR = bones[names.indexOf('thigh_r')];
+  const zAxis = new T.Vector3(0, 0, 1);
+  const rotAroundZ = (vec, pivot, angle) => {
+    if (Math.abs(angle) < 1e-6) return;
+    vec.sub(pivot).applyAxisAngle(zAxis, angle).add(pivot);
+  };
+
+  let minY = Infinity, maxY = -Infinity;
+  const unfoldedP = Array.from({ length: wCount }, (_, w) => {
+    const p = subdivided.vertices[w].clone();
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+    rotAroundZ(p, pivArmL, +0.205 * sArmL[w]);
+    rotAroundZ(p, pivArmR, -0.205 * sArmR[w]);
+    rotAroundZ(p, pivLegL, +0.045 * sLegL[w]);
+    rotAroundZ(p, pivLegR, -0.045 * sLegR[w]);
+    return p;
+  });
+  const unfoldedN = Array.from({ length: wCount }, (_, w) => {
+    const n = wNorm[w].clone();
+    const angle = +0.205 * sArmL[w] - 0.205 * sArmR[w] + 0.045 * sLegL[w] - 0.045 * sLegR[w];
+    if (Math.abs(angle) > 1e-6) n.applyAxisAngle(zAxis, angle).normalize();
+    return n;
+  });
+
+  const depthSpan = Math.max(1e-4, (maxY - minY) * 0.025);
+  const zMid = smoothScalar(Float32Array.from(unfoldedP, p => p.z), 22);
+  const rawSfb = Float32Array.from({ length: wCount }, (_, w) => {
+    const dz = clamp((unfoldedP[w].z - zMid[w]) / depthSpan, -1, 1);
+    return clamp(0.54 * unfoldedN[w].z + 0.46 * dz, -1, 1);
+  });
+  const sFb = smoothScalar(rawSfb, 3);
+
+  // Classify every quad 0 = Front Island, 1 = Back Island, then smooth isolated sawtooth quads
+  let sides = new Uint8Array(fCount);
+  for (let fi = 0; fi < fCount; fi++) {
+    const face = subdivided.faces[fi].face;
+    let avg = 0;
+    for (let k = 0; k < face.length; k++) avg += sFb[face[k][0]];
+    sides[fi] = avg >= 0 ? 0 : 1;
+  }
+  for (let pass = 0; pass < 4; pass++) {
+    const next = sides.slice();
+    for (let fi = 0; fi < fCount; fi++) {
+      const nbs = faceNeighbors[fi];
+      if (nbs.length < 3) continue;
+      let opp = 0;
+      for (const nb of nbs) if (sides[nb] !== sides[fi]) opp++;
+      if (opp >= 3) next[fi] = 1 - sides[fi];
+    }
+    sides = next;
+  }
+  return sides;
+}
+
+function computePaperDollDressAttributes(mesh, bones, names, sex) {
+  const vCount = mesh.position.length / 3;
+  const wCount = mesh.originalCount;
+  const adjacent = Array.from({ length: wCount }, () => new Set());
+  for (let i = 0; i < mesh.indices.length; i += 3) {
+    const a = mesh.weld[mesh.indices[i]], b = mesh.weld[mesh.indices[i + 1]], c = mesh.weld[mesh.indices[i + 2]];
+    adjacent[a].add(b); adjacent[b].add(a);
+    adjacent[b].add(c); adjacent[c].add(b);
+    adjacent[c].add(a); adjacent[a].add(c);
+  }
+
+  const wPos = Array.from({ length: wCount }, () => new T.Vector3());
+  const wArmL = new Float32Array(wCount), wArmR = new Float32Array(wCount);
+  const wLegL = new Float32Array(wCount), wLegR = new Float32Array(wCount);
+  const wHead = new Float32Array(wCount), seen = new Uint8Array(wCount);
+
+  for (let i = 0; i < vCount; i++) {
+    const w = mesh.weld[i];
+    if (seen[w]) continue;
+    seen[w] = 1;
+    wPos[w].fromArray(mesh.position, i * 3);
+    for (let k = 0; k < 4; k++) {
+      const bName = names[mesh.joints[i * 4 + k]] || '';
+      const wt = mesh.weights[i * 4 + k];
+      if (!wt) continue;
+      if (bName === 'Head') wHead[w] += wt;
+      if (/^(upperarm|lowerarm|hand|thumb|index|middle|ring|pinky)_.*_l$/.test(bName) || /^(upperarm|lowerarm|hand)_l$/.test(bName)) wArmL[w] += wt;
+      if (/^(upperarm|lowerarm|hand|thumb|index|middle|ring|pinky)_.*_r$/.test(bName) || /^(upperarm|lowerarm|hand)_r$/.test(bName)) wArmR[w] += wt;
+      if (/^(thigh|calf|foot|ball)_l$/.test(bName)) wLegL[w] += wt;
+      if (/^(thigh|calf|foot|ball)_r$/.test(bName)) wLegR[w] += wt;
+    }
+  }
+
+  const smoothScalar = (arr, passes) => {
+    let cur = Float32Array.from(arr), next = new Float32Array(wCount);
+    for (let p = 0; p < passes; p++) {
+      for (let w = 0; w < wCount; w++) {
+        let sum = cur[w];
+        for (const nb of adjacent[w]) sum += cur[nb];
+        next[w] = sum / (adjacent[w].size + 1);
+      }
+      [cur, next] = [next, cur];
+    }
+    return cur;
+  };
+
+  const sArmL = smoothScalar(wArmL, 8);
+  const sArmR = smoothScalar(wArmR, 8);
+  const sLegL = smoothScalar(wLegL, 6);
+  const sLegR = smoothScalar(wLegR, 6);
+  const sHead = smoothScalar(wHead, 4);
+
+  const pivArmL = bones[names.indexOf('upperarm_l')];
+  const pivArmR = bones[names.indexOf('upperarm_r')];
+  const pivLegL = bones[names.indexOf('thigh_l')];
+  const pivLegR = bones[names.indexOf('thigh_r')];
+  const zAxis = new T.Vector3(0, 0, 1);
+  const rotAroundZ = (vec, pivot, angle) => {
+    if (Math.abs(angle) < 1e-6) return;
+    vec.sub(pivot).applyAxisAngle(zAxis, angle).add(pivot);
+  };
+
+  // Unfold into a clean ~18.5° tailoring A-pose so sleeves/hands & inner thighs have wide, non-overlapping daylight margins
+  const unfoldedP = Array.from({ length: wCount }, (_, w) => {
+    const p = wPos[w].clone();
+    rotAroundZ(p, pivArmL, +0.205 * sArmL[w]);
+    rotAroundZ(p, pivArmR, -0.205 * sArmR[w]);
+    rotAroundZ(p, pivLegL, +0.045 * sLegL[w]);
+    rotAroundZ(p, pivLegR, -0.045 * sLegR[w]);
+    return p;
+  });
+
+  const nominalHeight = sex === 'female' ? 1.75 : 1.80;
+  const scaleV = 0.91 / nominalHeight; // Exact 1:1 isometric aspect on square 2048x2048 map!
+  const uv1 = new Float32Array(vCount * 2);
+  const dressAttr = new Float32Array(vCount * 4);
+
+  for (let i = 0; i < vCount; i++) {
+    const w = mesh.weld[i];
+    const p = unfoldedP[w];
+    const uFront = clamp(0.25 + p.x * scaleV, 0.012, 0.488);
+    const vPaper = clamp(0.045 + p.y * scaleV, 0.012, 0.988);
+    const isBack = mesh.dressSide ? mesh.dressSide[i] === 1 : false;
+    const uIsland = isBack ? (1.0 - uFront) : uFront;
+    const sideSign = isBack ? -1.0 : 1.0;
+    // Keep neck/collar, shoulders, torso, arms, hands, pelvis, legs, and feet 100% dress-eligible while protecting face/ears/mouth
+    const eligibility = clamp(1 - smooth(0.28, 0.62, sHead[w]), 0, 1);
+
+    // Every triangle belongs 100% to EITHER Front Island (U in [0.012, 0.488]) OR Back Island (U in [0.512, 0.988])!
+    uv1[i * 2] = uIsland;
+    uv1[i * 2 + 1] = 1.0 - vPaper;
+    dressAttr[i * 4] = uIsland;
+    dressAttr[i * 4 + 1] = vPaper;
+    dressAttr[i * 4 + 2] = sideSign;
+    dressAttr[i * 4 + 3] = eligibility;
+  }
+
+  let straddlingTris = 0;
+  for (let i = 0; i < mesh.indices.length; i += 3) {
+    const ua = uv1[mesh.indices[i] * 2];
+    const ub = uv1[mesh.indices[i + 1] * 2];
+    const uc = uv1[mesh.indices[i + 2] * 2];
+    const allFront = ua < 0.5 && ub < 0.5 && uc < 0.5;
+    const allBack = ua > 0.5 && ub > 0.5 && uc > 0.5;
+    if (!allFront && !allBack) straddlingTris++;
+  }
+  assert.equal(straddlingTris, 0, `Found ${straddlingTris} coronal UV straddling triangles`);
+
+  mesh.uv1 = uv1;
+  mesh.dress = dressAttr;
 }
 
 function createGlb(meshes, bones, names, parents, worldQuaternions, texture) {
@@ -1085,6 +1447,8 @@ function createGlb(meshes, bones, names, parents, worldQuaternions, texture) {
       TEXCOORD_0: accessor(mesh.uv, 'VEC2', 34962), JOINTS_0: accessor(mesh.joints, 'VEC4', 34962),
       WEIGHTS_0: accessor(mesh.weights, 'VEC4', 34962),
     };
+    if (mesh.uv1) attributes.TEXCOORD_1 = accessor(mesh.uv1, 'VEC2', 34962);
+    if (mesh.dress) attributes._PNC_DRESS = accessor(mesh.dress, 'VEC4', 34962);
     if (mesh.color) attributes.COLOR_0 = accessor(mesh.color, 'VEC3', 34962);
     json.meshes.push({ name: ['Body', 'Eyes', 'Eyebrows'][i], primitives: [{ attributes, indices: accessor(mesh.indices, 'SCALAR', 34963), material: i }] });
     json.nodes[0].children.push(json.nodes.length);
@@ -1145,6 +1509,7 @@ async function build() {
     const sourceFile = path.join(ROOT, 'public', 'models', 'external', 'quaternius-universal-base', `Superhero_${title}_FullBody.gltf`);
     const orientation = sourceOrientations(JSON.parse(await readFile(sourceFile, 'utf8')));
     const shapeData = {};
+    let coronalFaceSides = null;
     report.sourceRigs[sex] = orientation.measured;
     for (const type of TYPES) {
       const points = base.vertices.map(p => [...p]);
@@ -1163,15 +1528,19 @@ async function build() {
         for (let i = 0; i < mesh.position.length; i += 3) aligned.transformHead(Array.from(mesh.position.subarray(i, i + 3))).toArray(mesh.position, i);
       }
       const subdivided = subdivideBody(bodyFaces, aligned.vertices, base.uv, weights);
-      const mesh = splitMesh(subdivided.faces, subdivided.vertices, subdivided.uv, subdivided.influences, subdivided.vertices.length);
+      if (!coronalFaceSides) coronalFaceSides = computeCoronalFaceSides(subdivided, aligned.bones, names);
+      const mesh = splitMesh(subdivided.faces, subdivided.vertices, subdivided.uv, subdivided.influences, subdivided.vertices.length, coronalFaceSides);
       const meshes = [mesh, eyes.mesh, brows];
       const box = new T.Box3().setFromArray(mesh.position);
       const chinVertices = weightData.weights.head.filter(([i, weight]) =>
-        i < N && weight > 0.8 && Math.abs(points[i][0]) < 0.15 && points[i][2] > 0.5).map(([i]) => i);
+        i < N && weight > 0.45 && Math.abs(points[i][0]) < 0.16 && points[i][2] > 0.25).map(([i]) => i);
       assert(chinVertices.length > 0, 'Missing central chin landmarks');
       const chin = Math.min(...chinVertices.map(i => subdivided.vertices[i].y));
       const headHeight = box.max.y - chin;
-      const headCount = { realistic: 7.5, heroic: 8, lean: 7.8, slender: 8.2, busty: 7.6, chubby: 7.4, fat: 7.3, obese: 7.2, chibi: 2.5 }[type];
+      const headCount = (sex === 'female'
+        ? { realistic: 7.62, heroic: 8.05, lean: 7.82, slender: 8.02, busty: 7.65, chubby: 7.46, fat: 7.35, obese: 7.24, chibi: 2.5 }
+        : { realistic: 7.72, heroic: 8.15, lean: 7.90, slender: 8.08, busty: 7.78, chubby: 7.52, fat: 7.40, obese: 7.28, chibi: 2.5 }
+      )[type];
       {
         const compression = (headCount - 1) * headHeight / (chin - box.min.y);
         const warp = p => {
@@ -1252,6 +1621,7 @@ async function build() {
       console.log(`${sex}/${type}: ${height.toFixed(2)}m, ${mesh.position.length / 3} body split vertices`);
     }
     const baseline = shapeData.realistic;
+    computePaperDollDressAttributes(baseline.meshes[0], baseline.bones, names, sex);
     const texture = bodyTexture(base, baseline.points, sex, rig, names);
     await writeFile(path.join(OUT, `Mannequin_${title}.png`), texture);
     await writeFile(path.join(OUT, `Mannequin_${title}_Chibi.png`), bodyTexture(base, baseline.points, sex, rig, names, true));

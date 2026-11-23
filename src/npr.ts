@@ -19,29 +19,30 @@ export class StudioShadingController {
   readonly uniforms = {
     uShadeMode: { value: 0 }, uClayColor: { value: new T.Color() },
     uShadowSteps: { value: 2 }, uShadowTint: { value: new T.Vector3() },
-    uPaperColor: { value: new T.Color() },
+    uPaperColor: { value: new T.Color() }, uSceneLightsOnly: { value: 0 },
   };
-  update(style: RenderStyleState, background: string): void {
+  update(style: RenderStyleState, background: string, sceneLightsOnly = false): void {
     const u = this.uniforms;
     u.uShadeMode.value = RENDER_MODES.indexOf(style.mode);
     u.uClayColor.value.set(CLAY_COLORS[style.clayFinish]);
     u.uPaperColor.value.set(paperColor(style, background));
     u.uShadowSteps.value = style.shadowSteps;
     u.uShadowTint.value.fromArray(style.shadowTemp === 'cool' ? [0.72, 0.77, 0.96] : style.shadowTemp === 'warm' ? [0.95, 0.78, 0.68] : [0.82, 0.82, 0.84]);
+    u.uSceneLightsOnly.value = sceneLightsOnly ? 1 : 0;
   }
   attachStudioShading(material: T.MeshStandardMaterial): void {
     if (this.attached.has(material)) return;
     this.attached.add(material);
     const previous = material.onBeforeCompile;
     const key = material.customProgramCacheKey();
-    material.customProgramCacheKey = () => `${key}-studio-npr-v1`;
+    material.customProgramCacheKey = () => `${key}-studio-npr-v2`;
     material.onBeforeCompile = (shader, renderer) => {
       previous.call(material, shader, renderer);
       Object.assign(shader.uniforms, this.uniforms);
       shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>
 uniform int uShadeMode;
 uniform vec3 uClayColor, uShadowTint, uPaperColor;
-uniform float uShadowSteps;`);
+uniform float uShadowSteps, uSceneLightsOnly;`);
       shader.fragmentShader = shader.fragmentShader.replace('#include <lights_physical_fragment>', `
 vec3 pncBaseAlbedo = diffuseColor.rgb;
 if (uShadeMode == 3) {
@@ -54,7 +55,9 @@ if (uShadeMode == 3) {
 }
 #include <lights_physical_fragment>`);
       shader.fragmentShader = shader.fragmentShader.replace('vec3 outgoingLight = totalDiffuse + totalSpecular + totalEmissiveRadiance;', `
-vec3 outgoingLight = totalDiffuse + totalSpecular + totalEmissiveRadiance;
+vec3 outgoingLight = uSceneLightsOnly > 0.5
+  ? (totalDiffuse + totalSpecular)
+  : (totalDiffuse + totalSpecular + totalEmissiveRadiance);
 if (uShadeMode == 4) outgoingLight = pncBaseAlbedo;
 if (uShadeMode == 2) outgoingLight = uPaperColor;
 if (uShadeMode == 1) {
@@ -62,12 +65,15 @@ if (uShadeMode == 1) {
   float irradiance = 3.14159265 * dot(reflectedLight.directDiffuse, vec3(0.2126, 0.7152, 0.0722)) / albedoLuma;
   float aa = clamp(fwidth(irradiance) * 1.35, 0.008, 0.06);
   float band = smoothstep(0.48 - aa, 0.48 + aa, irradiance);
-  vec3 shadow = mix(pncBaseAlbedo * 0.56, pncBaseAlbedo * uShadowTint + 0.025 * uShadowTint, 0.48);
+  vec3 shadow = uSceneLightsOnly > 0.5
+    ? vec3(0.0)
+    : mix(pncBaseAlbedo * 0.56, pncBaseAlbedo * uShadowTint + 0.025 * uShadowTint, 0.48);
   vec3 lightTint = reflectedLight.directDiffuse / max(dot(reflectedLight.directDiffuse, vec3(0.333333)), 0.0001);
   vec3 lit = pncBaseAlbedo * mix(vec3(1.0), clamp(lightTint, 0.5, 1.6), 0.35);
   if (uShadowSteps > 2.5) {
     vec3 midtone = mix(shadow, lit, 0.55);
-    outgoingLight = mix(mix(shadow, midtone, band), lit, smoothstep(0.92-aa, 0.92+aa, irradiance));
+    float midBand = uSceneLightsOnly > 0.5 ? smoothstep(0.08 - aa, 0.08 + aa, irradiance) : band;
+    outgoingLight = mix(mix(shadow, midtone, midBand), lit, smoothstep(0.92-aa, 0.92+aa, irradiance));
   } else outgoingLight = mix(shadow, lit, band);
 }`);
     };

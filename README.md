@@ -30,6 +30,11 @@ the npm 11 CLI bundled alongside Node resolved it without global configuration c
 
 ## Two workflows
 
+The local character picker also includes **Women in Nightgown** (native rig,
+weighted hair, separately tintable opaque gown) and **Old Man** (original
+static sculpt fitted with a weighted rig and opaque clothing). Both save
+and reload by model ID. See [credits and adaptation notices](THIRD_PARTY_NOTICES.md).
+
 **Pose:** Click a figure in the viewport (or its Outliner row), then click any gold
 joint node on its body. The node turns coral and the local rotation rings attach
 there. Drag a colored ring to rotate that bone and its skin. You can also pick a
@@ -43,12 +48,36 @@ exact frame into all 17 editable FK joints with single-step Undo/Redo. Use
 **Export pose JSON** and **Import pose JSON** directly in **Joint & preset posing**
 to download or apply portable `.pose.json` files across male and female figures.
 
+On a figure with articulated fingers, open **Pose → Hand & Fingers**, choose **L Hand**,
+**R Hand**, or **Both**, then pick a gesture. **Open Palm**, **Fist**, **Thumbs Up**,
+and **Grip** affect only the fingers; rotate the wrist separately to aim the thumb in the scene.
+
 **Compose:** Arrange multiple figures and props → edit studio-light position,
 target, surface color and intensity → open **Camera** (or switch to **Camera**
 view and orbit/pan/zoom directly in the viewport to frame the shot) → tune lens,
 aspect and focus → **Export PNG** / save scene in **Library**.
 The floor is a fixed neutral stage; background color changes the space above it.
 Lamp is a furnishing; add a separate Studio light for illumination.
+
+**Preset rooms (local development):** Choose an imported interior under **Preset
+room**, or **Studio floor (no room)** to remove it. The room appears in the
+Outliner and uses the normal move/rotate/scale controls. **Room visibility** hides
+it without losing its transform; **Cutaway walls and ceiling** hides near-side
+architecture as you orbit, leaving furniture and the walking floor intact.
+Visible rooms replace the studio floor/grid and work with all five render styles.
+Rooms are uniformly scaled using actual architectural/furniture landmarks, not
+their outer bounding boxes; their interior walking-floor top is grounded at zero.
+Room IDs, transforms, visibility and cutaway settings travel with autosave,
+Library scenes and JSON backups. Missing room IDs reject imports rather than
+silently replacing the room.
+Visited room templates remain in CPU memory for immediate Undo/Redo; inactive
+GPU textures are released and uploaded again when the room is restored.
+
+Imported room binaries and their catalog live in ignored `local-rooms/`, served
+only by the development workspace. They are not bundled into the public build;
+local room scenes require the same local catalog to reopen. Source rights,
+normalization measurements and exclusions are recorded in
+[the intake notes](docs/SKETCHFAB_INTAKE.md).
 
 **Render styles:** The viewport's top-right switcher (shortcuts **1–5**) offers
 Realistic PBR, cel-shaded Illustration with geometric ink contours, pure Outline,
@@ -66,6 +95,12 @@ to extend selection. Move/Rotate operate about the selected position centroid.
 other target joint. These edits are single-step undoable and immediately autosaved.
 
 **Appearance and swapping:** In the inspector, **Base figure** changes the selected model in place, keeping its pose, name, tints, hairstyle, X/Z position and contact height. **Body proportion** applies only to mannequins; their Chibi variant also enables Illustration when switching from Realistic. Edit **Skin color**, **Outfit / dress color** and **Hair & brow color** independently. The Superhero body shader separates the original dark garment from skin using its albedo and roughness; the source normal and roughness detail stays in place. Copies have independent bones and material colors.
+
+**Holding a coat open:** On the female mannequin, select **3D wardrobe → Outer garment → Trench coat — held open**. The mannequin stands grounded and grips both upper lapels. For a one-handed pose, choose an **Opening gesture**: either hand can grip either lapel. Equip or change the gesture in one undoable action. You can then pose the arms yourself: the upper edges follow the gripping hands, **Settle cloth** uses the current pose, and **Reset drape** keeps the grip. **Unbuttoned trench coat** is the ordinary fitted coat and does not change your pose.
+
+**Editing a garment fit:** In the editor viewport, select the mannequin, then click its garment or choose **Edit … fit** in **3D wardrobe**. Drag an edge diamond or surface dot in the view plane, or select it and drag a translation arrow. Orbit to reach the sides and back. Modified nodes follow the posed body; amber marks the garment's travel limit. **Settle cloth** starts from this fit. **Reset drape** removes only the settle result; **Reset node** removes only the selected fit edit and invalidates its bake. Escape cancels an in-progress drag. **Finish editing** hides the handles, which are never included in camera PNGs.
+
+Travel is measured in the local garment frame: **7.5 cm** for the tank, **10 cm** for the jacket, **12 cm** for the skirt and **16 cm** for either trench. An edited target takes priority over collision: dragging it inside the figure can leave fabric inside the body even after settling. Moving a held lapel releases that lapel from its hand; resetting its node restores the preset grip.
 
 **Catalog and saves:** Scene JSON, named saves and autosave store `modelId` alongside each figure. Older scenes with only `kind` reopen as their original mannequins. Unknown IDs are rejected, not substituted. To integrate another cleared model, add an entry to [the catalog](src/characterCatalog.ts) with its local asset path, 17 bone names, body/brow mesh names, tint material and target height. The current native adapter expects a Y-up humanoid and Quaternius-compatible hair space and garment mask inputs. Other bind frames or material layouts need a tested adapter before listing. Run the [source-rig tests](src/characterCatalog.test.ts) and check hair, tints, swap and reload in the browser with real textures.
 

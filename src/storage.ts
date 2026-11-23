@@ -1,16 +1,26 @@
 import {
   clone,
   isBody,
+  isTargetedLight,
   JOINTS,
   validatePortable,
+  type Item,
   type Joint,
+  type LightPart,
   type Portable,
   type SceneState,
   type Vec3,
 } from './model';
+import {
+  deserializeImportedAsset,
+  portableJsonToSerializedAsset,
+  type Imported3DAsset,
+  type PortableSerializedImportedAsset,
+} from './importers/import3d';
 
 export interface Saved { id: string; name: string; type: Portable['type']; savedAt: string; data: Portable }
 export const WORKING_SCENE_ID = '__autosave__:working_scene' as const;
+export const IMPORTED_ASSET_PREFIX = '__asset__:' as const;
 export const DEFAULT_ORBIT_VIEW: OrbitViewState = { position: [3.2, 2.4, 5.2], target: [0, 0.95, 0] };
 
 export interface OrbitViewState {
@@ -22,6 +32,7 @@ export interface WorkingViewState {
   editorCamera?: OrbitViewState;
   selectedId?: string | null;
   selectedJoint?: Joint | null;
+  selectedLightPart?: LightPart;
   cameraView?: boolean;
   transformMode?: 'translate' | 'rotate' | 'scale';
 }
@@ -61,6 +72,8 @@ function clearCachedDb(target?: IDBDatabase): void {
 }
 
 export function closeCachedStorage(): void {
+  cancelScheduledWorkingSceneSave();
+  lastScheduledSavedSerialized = null;
   if (cachedDb) {
     try {
       cachedDb.close();
@@ -172,7 +185,156 @@ function runTransaction<T>(
 function isInternalRecord(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false;
   const rec = value as { id?: unknown; kind?: unknown };
-  return (typeof rec.id === 'string' && rec.id.startsWith('__autosave__:')) || rec.kind === 'working_scene';
+  return (
+    (typeof rec.id === 'string' &&
+      (rec.id.startsWith('__autosave__:') || rec.id.startsWith(IMPORTED_ASSET_PREFIX))) ||
+    rec.kind === 'working_scene' ||
+    rec.kind === 'imported_asset'
+  );
+}
+
+/* ============================================================================
+ * Runtime + IndexedDB Imported 3D Asset Registry (`__asset__:<assetId>`)
+ * ============================================================================ */
+
+interface StoredImportedAssetRecord {
+  id: string;
+  kind: 'imported_asset';
+  savedAt: string;
+  asset: PortableSerializedImportedAsset;
+}
+
+const runtimeImportedAssets = new Map<string, Imported3DAsset>();
+const runtimePortableAssets = new Map<string, PortableSerializedImportedAsset>();
+
+export function registerRuntimeImportedAsset(
+  assetId: string,
+  asset: Imported3DAsset,
+  portable?: PortableSerializedImportedAsset,
+): void {
+  runtimeImportedAssets.set(assetId, asset);
+  if (portable) {
+    runtimePortableAssets.set(assetId, portable);
+  }
+}
+
+export function getRuntimeImportedAsset(assetId: string): Imported3DAsset | undefined {
+  return runtimeImportedAssets.get(assetId);
+}
+
+export function getRuntimePortableAsset(assetId: string): PortableSerializedImportedAsset | undefined {
+  return runtimePortableAssets.get(assetId);
+}
+
+export async function saveImportedAssetToStorage(
+  assetId: string,
+  portable: PortableSerializedImportedAsset,
+): Promise<void> {
+  runtimePortableAssets.set(assetId, portable);
+  const record: StoredImportedAssetRecord = {
+    id: `${IMPORTED_ASSET_PREFIX}${assetId}`,
+    kind: 'imported_asset',
+    savedAt: new Date().toISOString(),
+    asset: portable,
+  };
+  await runTransaction(
+    'readwrite',
+    store => store.put(record),
+    'Could not store imported 3D asset',
+  );
+}
+
+export async function loadImportedAssetFromStorage(
+  assetId: string,
+): Promise<PortableSerializedImportedAsset | null> {
+  const cached = runtimePortableAssets.get(assetId);
+  if (cached) return cached;
+  const raw = await runTransaction<unknown>(
+    'readonly',
+    store => store.get(`${IMPORTED_ASSET_PREFIX}${assetId}`),
+    'Could not read imported 3D asset',
+  );
+  if (!raw || typeof raw !== 'object') return null;
+  const rec = raw as Partial<StoredImportedAssetRecord>;
+  if (!rec.asset || typeof rec.asset.glbBase64 !== 'string') return null;
+  runtimePortableAssets.set(assetId, rec.asset);
+  return rec.asset;
+}
+
+function collectImportedItems(items: readonly Item[], out: Item[] = []): Item[] {
+  for (const item of items) {
+    if (item.kind === 'imported' && item.assetId) {
+      out.push(item);
+    }
+    if (item.kind === 'boole' && item.operands) {
+      collectImportedItems(item.operands, out);
+    }
+  }
+  return out;
+}
+
+/**
+ * Ensures all `kind === 'imported'` items in `scene` have hydrated Three.js `Object3D` assets
+ * in `runtimeImportedAssets` (restoring from `embeddedGlbBase64` or IndexedDB as needed).
+ */
+export async function hydrateSceneImportedAssets(scene: SceneState): Promise<void> {
+  const importedItems = collectImportedItems(scene.items);
+  for (const item of importedItems) {
+    const assetId = item.assetId!;
+    if (runtimeImportedAssets.has(assetId)) continue;
+
+    let portable: PortableSerializedImportedAsset | null = null;
+    if (item.embeddedGlbBase64) {
+      portable = {
+        version: 1,
+        name: item.fileName ?? item.name,
+        sourceFormat: item.sourceFormat ?? 'glb',
+        glbBase64: item.embeddedGlbBase64,
+        appliedScale: 1,
+        vertexCount: item.vertexCount ?? 0,
+        faceCount: item.faceCount ?? 0,
+        boundsSize: item.boundsSize ?? [1, 1, 1],
+      };
+      try {
+        await saveImportedAssetToStorage(assetId, portable);
+      } catch {
+        // Ignore IndexedDB write failures in read-only or test contexts
+      }
+    } else {
+      try {
+        portable = await loadImportedAssetFromStorage(assetId);
+      } catch {
+        portable = null;
+      }
+    }
+
+    if (portable !== null) {
+      const validPortable: PortableSerializedImportedAsset = portable;
+      try {
+        const serialized = portableJsonToSerializedAsset(validPortable);
+        const hydrated = await deserializeImportedAsset(serialized);
+        runtimeImportedAssets.set(assetId, hydrated);
+      } catch {
+        // Leave fallback placeholder if asset binary could not be decoded
+      }
+    }
+  }
+}
+
+/**
+ * Embeds Base64 `.glb` payloads onto `imported` items so exported `.scene.json` files are 100% portable.
+ */
+export async function embedSceneImportedAssetsForExport(scene: SceneState): Promise<SceneState> {
+  const copy = clone(scene);
+  const importedItems = collectImportedItems(copy.items);
+  for (const item of importedItems) {
+    if (!item.assetId || item.embeddedGlbBase64) continue;
+    const portable = await loadImportedAssetFromStorage(item.assetId).catch(() => null);
+    if (portable?.glbBase64) {
+      item.embeddedGlbBase64 = portable.glbBase64;
+    }
+  }
+  return copy;
 }
 
 function parseBoundedVec3(value: unknown, min: number, max: number): Vec3 | undefined {
@@ -215,6 +377,8 @@ export function sanitizeWorkingView(rawView: unknown, scene: SceneState): Workin
     selectedJoint = v.selectedJoint as Joint;
   }
   const cameraView = typeof v.cameraView === 'boolean' ? v.cameraView : false;
+  const selectedLightPart: LightPart =
+    selectedItem && isTargetedLight(selectedItem) && v.selectedLightPart === 'target' ? 'target' : 'source';
   const transformMode =
     v.transformMode === 'translate' || v.transformMode === 'rotate' || v.transformMode === 'scale'
       ? v.transformMode
@@ -223,6 +387,7 @@ export function sanitizeWorkingView(rawView: unknown, scene: SceneState): Workin
     ...(editorCamera ? { editorCamera } : {}),
     selectedId,
     selectedJoint,
+    ...(selectedLightPart === 'target' ? { selectedLightPart } : {}),
     cameraView,
     transformMode,
   };
@@ -255,6 +420,286 @@ export async function saveWorkingDraft(draft: WorkingDraft): Promise<void> {
     store => store.put(record),
     'Autosave failed',
   );
+}
+
+function isWorkingDraftInput(value: SceneState | WorkingDraft): value is WorkingDraft {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'scene' in value &&
+    typeof (value as WorkingDraft).scene === 'object' &&
+    (value as WorkingDraft).scene !== null
+  );
+}
+
+function toWorkingDraft(
+  sceneOrDraft: SceneState | WorkingDraft,
+  view?: WorkingViewState,
+): WorkingDraft {
+  if (isWorkingDraftInput(sceneOrDraft)) {
+    return {
+      scene: sceneOrDraft.scene,
+      ...(view !== undefined
+        ? { view }
+        : sceneOrDraft.view !== undefined
+          ? { view: sceneOrDraft.view }
+          : {}),
+    };
+  }
+  return view !== undefined ? { scene: sceneOrDraft, view } : { scene: sceneOrDraft };
+}
+
+/**
+ * Immediately validates and persists a `SceneState` (or `WorkingDraft`) to IndexedDB.
+ * Preserves direct awaitable semantics for callers and tests requiring immediate persistence.
+ */
+export async function saveWorkingScene(
+  sceneOrDraft: SceneState | WorkingDraft,
+  view?: WorkingViewState,
+): Promise<void> {
+  await saveWorkingDraft(toWorkingDraft(sceneOrDraft, view));
+}
+
+export interface ScheduleSaveWorkingSceneOptions {
+  view?: WorkingViewState;
+  save?: (draft: WorkingDraft) => Promise<void>;
+  onStatus?: (status: AutosaveStatus, error?: unknown) => void;
+}
+
+type IdleCallbackHandle = number;
+type RequestIdleFn = (
+  callback: (deadline: { didTimeout: boolean; timeRemaining: () => number }) => void,
+  options?: { timeout?: number },
+) => IdleCallbackHandle;
+type CancelIdleFn = (handle: IdleCallbackHandle) => void;
+
+let scheduledDraft: WorkingDraft | null = null;
+let scheduledSaveFn: ((draft: WorkingDraft) => Promise<void>) | null = null;
+let scheduledStatusFn: ((status: AutosaveStatus, error?: unknown) => void) | undefined;
+let scheduledDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+let scheduledIdleHandle: IdleCallbackHandle | null = null;
+let scheduledIdleFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+let scheduledInFlight: Promise<void> | null = null;
+let lastScheduledSavedSerialized: string | null = null;
+let scheduledFlushResolvers: Array<() => void> = [];
+let scheduledWriteCount = 0;
+let scheduledCallCount = 0;
+let lifecycleFlushListenersInstalled = false;
+
+function cancelPendingTimersOnly(): void {
+  if (scheduledDebounceTimer !== null) {
+    clearTimeout(scheduledDebounceTimer);
+    scheduledDebounceTimer = null;
+  }
+  if (scheduledIdleHandle !== null) {
+    const cancelIdle = (globalThis as unknown as { cancelIdleCallback?: CancelIdleFn })
+      .cancelIdleCallback;
+    if (typeof cancelIdle === 'function') {
+      cancelIdle(scheduledIdleHandle);
+    }
+    scheduledIdleHandle = null;
+  }
+  if (scheduledIdleFallbackTimer !== null) {
+    clearTimeout(scheduledIdleFallbackTimer);
+    scheduledIdleFallbackTimer = null;
+  }
+}
+
+function resolveScheduledFlushWaiters(): void {
+  if (scheduledFlushResolvers.length === 0) return;
+  const waiters = scheduledFlushResolvers.splice(0, scheduledFlushResolvers.length);
+  for (const resolve of waiters) resolve();
+}
+
+function ensureLifecycleFlushListeners(): void {
+  if (lifecycleFlushListenersInstalled) return;
+  const hasEvents = typeof globalThis.addEventListener === 'function';
+  const hasDocEvents =
+    typeof globalThis.document !== 'undefined' &&
+    typeof globalThis.document?.addEventListener === 'function';
+  if (!hasEvents && !hasDocEvents) return;
+
+  lifecycleFlushListenersInstalled = true;
+  if (hasDocEvents) {
+    globalThis.document.addEventListener('visibilitychange', () => {
+      if (globalThis.document.visibilityState === 'hidden') {
+        void flushScheduledWorkingSceneSave();
+      }
+    });
+  }
+  if (hasEvents) {
+    globalThis.addEventListener('pagehide', () => {
+      void flushScheduledWorkingSceneSave();
+    });
+  }
+}
+
+function pumpScheduledWorkingSceneSave(): void {
+  if (scheduledInFlight !== null || scheduledDraft === null) {
+    if (
+      scheduledInFlight === null &&
+      scheduledDraft === null &&
+      scheduledDebounceTimer === null &&
+      scheduledIdleHandle === null &&
+      scheduledIdleFallbackTimer === null
+    ) {
+      resolveScheduledFlushWaiters();
+    }
+    return;
+  }
+
+  const rawDraft = scheduledDraft;
+  const writeFn = scheduledSaveFn ?? saveWorkingDraft;
+  const statusFn = scheduledStatusFn;
+  scheduledDraft = null;
+
+  const snapshot = clone(rawDraft);
+  const serialized = serializeDraft(snapshot);
+  if (writeFn === saveWorkingDraft && serialized === lastScheduledSavedSerialized) {
+    statusFn?.('saved');
+    if (
+      scheduledDebounceTimer === null &&
+      scheduledIdleHandle === null &&
+      scheduledIdleFallbackTimer === null
+    ) {
+      resolveScheduledFlushWaiters();
+    }
+    return;
+  }
+
+  statusFn?.('saving');
+  let writePromise: Promise<void>;
+  try {
+    writePromise = writeFn(snapshot);
+  } catch (err) {
+    writePromise = Promise.reject(err);
+  }
+
+  scheduledInFlight = writePromise.then(
+    () => {
+      scheduledWriteCount++;
+      if (writeFn === saveWorkingDraft) {
+        lastScheduledSavedSerialized = serialized;
+      }
+      scheduledInFlight = null;
+      if (
+        scheduledDraft !== null &&
+        scheduledDebounceTimer === null &&
+        scheduledIdleHandle === null &&
+        scheduledIdleFallbackTimer === null
+      ) {
+        pumpScheduledWorkingSceneSave();
+        return;
+      }
+      if (
+        scheduledDraft === null &&
+        scheduledDebounceTimer === null &&
+        scheduledIdleHandle === null &&
+        scheduledIdleFallbackTimer === null
+      ) {
+        statusFn?.('saved');
+        resolveScheduledFlushWaiters();
+      }
+    },
+    err => {
+      scheduledInFlight = null;
+      statusFn?.('error', err);
+      if (
+        scheduledDraft === null &&
+        scheduledDebounceTimer === null &&
+        scheduledIdleHandle === null &&
+        scheduledIdleFallbackTimer === null
+      ) {
+        resolveScheduledFlushWaiters();
+      }
+    },
+  );
+}
+
+/**
+ * Coalesces rapid 60Hz scene/slider updates into a single non-blocking IndexedDB write
+ * after `delayMs` (default `280ms`), dispatching cloning + serialization inside
+ * `requestIdleCallback` (with `setTimeout` fallback) and auto-flushing on `visibilitychange`/`pagehide`.
+ */
+export function scheduleSaveWorkingScene(
+  sceneOrDraft: SceneState | WorkingDraft,
+  delayMs = 280,
+  options?: ScheduleSaveWorkingSceneOptions,
+): void {
+  ensureLifecycleFlushListeners();
+  scheduledCallCount++;
+  scheduledDraft = toWorkingDraft(sceneOrDraft, options?.view);
+  scheduledSaveFn = options?.save ?? saveWorkingDraft;
+  if (options?.onStatus) {
+    scheduledStatusFn = options.onStatus;
+  }
+
+  cancelPendingTimersOnly();
+  const clampedDelay = Math.max(0, delayMs);
+  scheduledDebounceTimer = setTimeout(() => {
+    scheduledDebounceTimer = null;
+    const requestIdle = (globalThis as unknown as { requestIdleCallback?: RequestIdleFn })
+      .requestIdleCallback;
+    if (typeof requestIdle === 'function') {
+      scheduledIdleHandle = requestIdle(
+        () => {
+          scheduledIdleHandle = null;
+          pumpScheduledWorkingSceneSave();
+        },
+        { timeout: Math.max(120, clampedDelay) },
+      );
+    } else {
+      scheduledIdleFallbackTimer = setTimeout(() => {
+        scheduledIdleFallbackTimer = null;
+        pumpScheduledWorkingSceneSave();
+      }, 0);
+    }
+  }, clampedDelay);
+}
+
+/**
+ * Immediately commits any pending `scheduleSaveWorkingScene` update without waiting for
+ * the debounce timer or `requestIdleCallback`, resolving once IndexedDB persistence completes.
+ */
+export function flushScheduledWorkingSceneSave(): Promise<void> {
+  cancelPendingTimersOnly();
+  if (scheduledDraft !== null && scheduledInFlight === null) {
+    pumpScheduledWorkingSceneSave();
+  }
+  if (scheduledInFlight === null && scheduledDraft === null) {
+    return Promise.resolve();
+  }
+  return new Promise<void>(resolve => {
+    scheduledFlushResolvers.push(resolve);
+  });
+}
+
+/**
+ * Cancels any pending scheduled working-scene write that has not started yet.
+ */
+export function cancelScheduledWorkingSceneSave(): void {
+  cancelPendingTimersOnly();
+  scheduledDraft = null;
+  if (scheduledInFlight === null) {
+    resolveScheduledFlushWaiters();
+  }
+}
+
+export function getScheduledWorkingSceneSaveStats(): {
+  scheduledCalls: number;
+  completedWrites: number;
+  hasPending: boolean;
+} {
+  return {
+    scheduledCalls: scheduledCallCount,
+    completedWrites: scheduledWriteCount,
+    hasPending:
+      scheduledDraft !== null ||
+      scheduledDebounceTimer !== null ||
+      scheduledIdleHandle !== null ||
+      scheduledIdleFallbackTimer !== null ||
+      scheduledInFlight !== null,
+  };
 }
 
 export async function loadWorkingDraft(): Promise<WorkingDraftLoadResult> {
@@ -359,20 +804,17 @@ export class WorkingDraftAutoSaver {
 
   schedule(draft: WorkingDraft): void {
     if (!this.hydrated || this.disposed) return;
-    const snapshot = clone(draft);
-    const serialized = serializeDraft(snapshot);
-    if (this.inFlight === null && this.timer === null && this.pending === null && serialized === this.lastSavedSerialized) {
-      return;
-    }
-    this.pending = snapshot;
-    this.pendingSerialized = serialized;
+    // Hold lightweight draft reference during rapid 60Hz slider drags; defer clone + JSON.stringify until pump()
+    this.pending = draft;
+    this.pendingSerialized = null;
     this.onStatus?.('saving');
-    if (this.timer === null) {
-      this.timer = setTimeout(() => {
-        this.timer = null;
-        this.pump();
-      }, this.throttleMs);
+    if (this.timer !== null) {
+      clearTimeout(this.timer);
     }
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      this.pump();
+    }, this.throttleMs);
   }
 
   flush(): Promise<void> {
@@ -415,10 +857,21 @@ export class WorkingDraftAutoSaver {
 
   private pump(): void {
     if (this.inFlight !== null || this.pending === null || this.disposed) return;
-    const next = this.pending;
-    const nextSerialized = this.pendingSerialized;
+    const rawPending = this.pending;
+    const precomputedSerialized = this.pendingSerialized;
     this.pending = null;
     this.pendingSerialized = null;
+
+    const next = precomputedSerialized !== null ? rawPending : clone(rawPending);
+    const nextSerialized = precomputedSerialized ?? serializeDraft(next);
+    if (nextSerialized === this.lastSavedSerialized) {
+      if (this.timer === null && this.pending === null) {
+        this.onStatus?.('saved');
+        this.resolveIdle();
+      }
+      return;
+    }
+
     this.onStatus?.('saving');
 
     let rawWrite: Promise<void>;
@@ -504,7 +957,7 @@ export async function saveLocal(data: Portable): Promise<void> {
   );
 }
 export async function deleteLocal(id: string): Promise<void> {
-  if (id.startsWith('__autosave__:')) {
+  if (id.startsWith('__autosave__:') || id.startsWith(IMPORTED_ASSET_PREFIX)) {
     throw new Error('Delete failed: cannot delete internal autosave state via Library');
   }
   await runTransaction('readwrite', store => store.delete(id), 'Delete failed');

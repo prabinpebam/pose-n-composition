@@ -4,9 +4,12 @@ import {
   clearWorkingDraft,
   closeCachedStorage,
   deleteLocal,
+  embedSceneImportedAssetsForExport,
   listSaved,
+  loadImportedAssetFromStorage,
   loadWorkingDraft,
   sanitizeWorkingView,
+  saveImportedAssetToStorage,
   saveLocal,
   saveWorkingDraft,
   WORKING_SCENE_ID,
@@ -376,4 +379,37 @@ describe('IndexedDB immediate working-draft autosave and reload restoration', ()
     expect(sanitized.selectedJoint).toBeNull();
     expect(sanitized.editorCamera).toBeUndefined();
   });
+
+  it('persists binary imported 3D assets in IndexedDB without polluting named Library saves and embeds Base64 for portable Scene JSON', async () => {
+    const portableAsset = {
+      version: 1 as const,
+      name: 'demo-cube.obj',
+      sourceFormat: 'obj' as const,
+      glbBase64: btoa('glTF-mock-binary-payload'),
+      appliedScale: 1,
+      boundsSize: [1, 1, 1] as [number, number, number],
+      vertexCount: 8,
+      faceCount: 12,
+    };
+    await saveImportedAssetToStorage('asset-demo-cube', portableAsset);
+
+    // Internal __asset__: records must never appear in named Library list
+    expect(await listSaved()).toEqual([]);
+
+    const loadedAsset = await loadImportedAssetFromStorage('asset-demo-cube');
+    expect(loadedAsset).toEqual(portableAsset);
+
+    const scene = initialScene();
+    scene.items.push({
+      ...createItem('imported', 0),
+      assetId: 'asset-demo-cube',
+      fileName: 'demo-cube.obj',
+      sourceFormat: 'obj',
+    });
+
+    const embedded = await embedSceneImportedAssetsForExport(scene);
+    const exportedItem = embedded.items.find(i => i.kind === 'imported')!;
+    expect(exportedItem.embeddedGlbBase64).toBe(btoa('glTF-mock-binary-payload'));
+  });
 });
+

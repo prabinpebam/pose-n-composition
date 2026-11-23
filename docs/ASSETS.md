@@ -482,3 +482,167 @@ hairstyle, animation-library coverage, multi-figure CPU performance, and deploye
 application QA remain integration gates. This high-density body is not a
 60-fps guarantee; benchmark the final integrated workload rather than reusing
 the raw-cage timing.
+
+### Mannequin dress maps
+
+**Separate polygon wardrobe (Mannequin Female only).** Tank, cropped jacket,
+open trench and pencil skirt are original MIT project patterns, fitted to the
+existing CC0 MakeHuman body. No third-party clothing or texture downloads.
+Equip them under **3D wardrobe** in Character appearance or Material. The
+underlying dress map is independent and may still show at necklines and openings.
+
+Rebuild the four lazy-loaded indexed meshes with
+`python scripts/build-wardrobe.py` (NumPy and SciPy, offline only). The bake
+uses the Female GLB's Body vertex order: regenerate if the topology changes.
+Vertices bind to the final deformed body surface with up to four weighted
+anchors plus cloth clearance; skirts bridge the legs, rather than following
+each leg as trousers. This is the fitted, unsimulated baseline. Use **Settle
+cloth** after posing for a gravity/contact pass. **Reset drape** restores the
+fit without changing the pose, equipped layers, or colors. Both actions are
+undoable. Wide strides, kneeling and self-contact can still intersect panels.
+
+#### Why these clothes do not use another skeleton
+
+[Khronos's glTF skinning tutorial](https://github.khronos.org/glTF-Tutorials/gltfTutorial/gltfTutorial_020_Skins.html)
+describes weighted current-joint times inverse-bind matrices. This would be a
+reasonable transfer target for a body rendered solely with linear blend
+skinning (LBS). Here `applyBodyProportion` first changes rest vertices and the
+bind rig. `setFigurePose` temporarily removes the root transform;
+`applyExtremePoseDeformer` solves the joints and, for adult proportions,
+writes corrected, welded positions/normals into Body. It then rewrites the
+Body skeleton inverses for **identity pass-through**, not for binding another
+rest mesh. The initial Female GLB and its vertex order, not any live pose,
+are the pattern reference.
+
+For the tank, sleeves, jacket body and lapels, a pattern vertex keeps its
+coordinates on the original triangle/edge. Its final position is the weighted
+sum of the same body vertices after deformation, with fabric clearance along
+their normals. A plain mesh in Body-local space inherits the root exactly once.
+Chibi is the exception: its attributes are morphed rest positions; apply
+[Three.js `applyBoneTransform`](https://threejs.org/docs/pages/SkinnedMesh.html)
+to each source position-plus-offset **once** before interpolation.
+
+The [Blender Surface Deform manual](https://docs.blender.org/manual/en/latest/modeling/modifiers/deform/surface_deform.html)
+describes both the benefit of transferring actual surface deformation and its
+limitation farther from the target. Across the legs there is no single suitable
+body triangle. The lower panels bridge endpoints on a convex body section.
+Samples slide along the resulting posed contour using baked rest edge lengths
+to distribute local stretch; the endpoints never cross the coat opening.
+
+#### Measured limits
+
+`src/mannequin-wardrobe.test.ts` uses the shipped model. On single-donor sleeve
+samples, after removing designed clearance, normalized donor LBS missed the
+rendered body by 3.67 mm RMS for a raised arm, 5.78 mm for elbow flexion and
+11.17 mm for a chest/forearm twist. Final-surface binding was below 0.001 mm
+RMS; the opposite lower sleeve did not move in either isolated arm test.
+World-space clearance was checked after translation/rotation on realistic,
+chubby and chibi figures.
+
+For skirt edges longer than 3 mm, the 99th-percentile posed/rest length ratio
+fell from 2.93 to 1.82 with one thigh raised, and from 1.74 to 1.35 seated.
+The skirt hem's area-vector magnitude retained 95% and 106% of neutral,
+respectively; the distance between the coat hem's front edges was 141 and
+86 mm. Sampled neutral/moderate front and back rays separated outer and
+inner fabric by more than 3 mm. These are spot checks, **not collision
+certification**. A nearest-oriented-face diagnostic flagged penetrations
+over 2 mm even in neutral (3/302 skirt and 46/1951 coat samples); the
+seated case flagged 20/302 and 70/1951, respectively. The diagnostic can
+also flag contact with an adjacent body part. Deep bends pull the coat
+forward with the thighs rather than draping under gravity.
+
+To reproduce the views, run `scripts/wardrobe-smoke.py <studio-url> <out-dir>`
+with Python Playwright, Edge and Pillow. Add `--stress` for the raised arm,
+bent elbow, twist, raised thigh, seated, reset, proportions and root transform
+sheet. Both modes use a new disposable browser context.
+
+#### Post-pose drape: method and limits
+
+The optional settle is not a second skin, a frame-loop simulation, or part of
+the pattern bake. `prepareCloth` snapshots the **fitted** vertices, not the last
+settled ones, and the current adult CPU-deformed / Chibi LBS body triangles.
+World gravity is transformed by the inverse linear part of the Body world
+matrix (including scale/reflection; never translation). Distances and
+thicknesses are in Body-local metres; nonuniform root scale is a styling
+transform, not a simulation of anisotropic fabric.
+
+* [Müller et al., *Position Based Dynamics*, §4](https://matthias-research.github.io/pages/publications/posBasedDyn.pdf):
+  we use position prediction, zero inverse mass at sewn attachments, triangle
+  edge length constraints and one-sided contact projection. The paper's
+  dihedral-angle bend measures the angle between neighboring faces. Instead
+  we constrain the distance between their opposite vertices more softly:
+  less angular precision (no signed crease angle), cheaper on narrow clipped
+  triangles. Rest lengths reference this pose's fit, preserving authored folds
+  rather than attempting to infer a flat sewing pattern.
+* [Macklin, Müller & Chentanez, *XPBD* (2016)](https://matthias-research.github.io/pages/publications/XPBD.pdf):
+  stretch and bend use `alpha / h²` in the constraint denominator and carry
+  the multiplier between the two projection sweeps, resetting it per substep.
+  Pins, motion envelopes, damping and unilateral contact are separate,
+  deliberately non-elastic controls, not calibrated textile parameters.
+* [Macklin et al., *Small Steps in Physics Simulation* (2019)](https://matthias-research.github.io/pages/publications/smallsteps.pdf):
+  prefer many short predictions to iterating a single large time step. Here
+  a disposable worker runs 48 steps of 1/160 s and two alternating sweeps per
+  step, not the paper's one-iteration benchmark. No catch-up or idle ticks.
+* Body capsules would be cheap but miss the fitted chest and the opposing
+  thighs in a seated pose. We instead build a BVH over posed triangles and
+  project against local nearest-face tangent planes (2 mm body / 2.8 mm
+  inner-layer margin). Refresh every eight steps and at the end. Solve
+  tank → skirt → outer; completed inner layers are open, one-sided collision
+  surfaces, **not** closed solids. Tangential hits beyond an open edge are
+  ignored. In contrast, [Bridson, Fedkiw & Anderson (SIGGRAPH 2002)](https://graphics.stanford.edu/papers/cloth-sig02/)
+  combine repulsion with geometric collision handling and model friction.
+  We don't run continuous triangle/edge tests or self-collision, simulate
+  friction, or include a seat/furniture collider. Fixed seams stay put
+  even when an extreme pose already intersects them.
+
+Each equipped layer has its own material swatches. The primary fabric changes
+independently for the two trench variants. The held-open variant shares the
+trench mesh bytes, but its versioned fit in `src/heldTrenchFit.ts` shapes
+each occupied chest panel and its lapel around the chosen gesture's palm attachment.
+The open plackets continue down to the hem independently of the waist. The held
+pattern re-cuts the belt into two side keepers and a loose back strap with hanging
+ends; its solver fits that geometry, not the ordinary coat's waist band. Its fitted mesh
+is the rest surface for each settle; the grip and shoulders stay fixed.
+Only explicit equip applies the standing gesture. When recolored, the
+trim preserves its value contrast and the trench retains its lining
+and brass. Scene JSON and autosave store tints plus optional signed 0.1 mm
+vertex offsets (eight Base64 characters per vertex), never transient velocity.
+Offsets replay only for the matching pose/shape/rotation/scale, layer set and
+pattern-byte fingerprints. Recoloring or translating does not rerun physics.
+For viewport and history verification run `scripts/cloth-settle-smoke.py
+<private-preview-url> <output-dir>`; geometry diagnostics and deterministic
+repeat/reset tests are in `src/clothSettle.test.ts`.
+
+Final pattern fingerprints (tank/skirt/jacket/trench): `833264df`,
+`34cda37f`, `d671c36c`, `69889901`. Measurements on that bake:
+
+| Pose / equipped layer | Downward displacement p95 (mm) | Edge length ratio p99 | Movable samples >2 mm inside body |
+|---|---:|---:|---:|
+| Neutral tank | 19.3 | 1.160 | 0/593 |
+| Neutral skirt | 44.9 | 1.140 | 0/266 |
+| Neutral open trench | 30.2 | 1.204 | 0/1305 |
+| Bent elbow jacket | 27.5 | 1.148 | 0/1108 |
+| Seated tank | 19.4 | 1.160 | 0/593 |
+| Seated skirt | 44.8 | 1.123 | 0/266 |
+| Seated open trench | 47.4 | 1.297 | 1/1305 |
+
+Sag is relative to the fitted pose and excludes pins. Ratios use triangle
+edges longer than 3 mm, relative to that same fit, not to unposed cloth.
+Contact is sampled at every seventh render vertex using nearest oriented
+body face, not a watertight-penetration guarantee. Pin drift was zero; in the
+seated trench 21/646 **fixed** samples were already more than 2 mm inside by
+that metric. The center-front opening and front/rear torso layer order passed
+ray checks. A seated, layered production viewport settled in 1.15–1.23 s
+over three fresh headless Edge runs; the governor rendered zero frames over
+each 1.25 s idle observation after reload, with no surviving cloth job.
+
+The dress is paint on the skinned body, not a separate clothing mesh. The two
+mannequin GLBs carry a split `_PNC_DRESS` attribute: left half of the PNG for
+the front, right half for the back. PNG row zero is the top (`1 - v`).
+Transparent texels expose skin, including on the back of a custom map.
+Paint both silhouettes when full coverage is intended.
+
+Regenerate presets and painting templates with
+`node scripts/build-mannequin-dress-maps.mjs`. At a side seam, two different
+UVs represent one body position. Use model-space coordinates for continuous
+hems and let different front/back cuts meet at the same height.

@@ -11,6 +11,11 @@ import {
   type MannequinArchetypeManifest,
 } from './bodyProportions';
 import { registerHairTemplate, type HairAssetId } from './hair';
+import {
+  registerMannequinHairBundle,
+  type MannequinHairManifest,
+  type MannequinHairTextureSet,
+} from './mannequin-hair';
 import type { Body } from './model';
 
 interface FixtureGLTF {
@@ -107,6 +112,31 @@ export function loadMannequinTestFixtures(options?: { includeHair?: boolean }): 
         const parsed = await loader.parseAsync(stripped, '');
         templates.set(body, parsed.scene);
       }
+
+      const cc0HairDir = resolve(mannequinDir, 'hair');
+      const cc0HairManifest = JSON.parse(
+        readFileSync(resolve(cc0HairDir, 'mannequin-hair.json'), 'utf8'),
+      ) as MannequinHairManifest;
+      const cc0HairBuf = readFileSync(resolve(cc0HairDir, 'mannequin-hair.bin'));
+      const cc0HairTextures: Record<string, MannequinHairTextureSet> = {};
+      for (const asset of Object.values(cc0HairManifest.assets)) {
+        const albedoPng = readFileSync(resolve(process.cwd(), 'public', asset.albedoPath));
+        const normalPng = readFileSync(resolve(process.cwd(), 'public', asset.normalPath));
+        const [map, normalMap] = await Promise.all([
+          decodeUnpremultipliedPngDataTexture(
+            new Uint8Array(albedoPng.buffer, albedoPng.byteOffset, albedoPng.byteLength),
+          ),
+          decodeUnpremultipliedPngDataTexture(
+            new Uint8Array(normalPng.buffer, normalPng.byteOffset, normalPng.byteLength),
+          ),
+        ]);
+        cc0HairTextures[asset.id] = { map, normalMap };
+      }
+      registerMannequinHairBundle(
+        cc0HairManifest,
+        cc0HairBuf.buffer.slice(cc0HairBuf.byteOffset, cc0HairBuf.byteOffset + cc0HairBuf.byteLength),
+        cc0HairTextures,
+      );
 
       const hairDir = resolve(process.cwd(), 'public', 'models', 'external', 'quaternius-universal-base');
       const hairIds: HairAssetId[] = ['SimpleParted', 'Long', 'Buns', 'Buzzed', 'BuzzedFemale', 'Beard'];

@@ -15,31 +15,43 @@
       ],
       [
         "macrodetails/universal-female-young-averagemuscle-averageweight",
-        0.62
+        0.88
       ],
       [
         "macrodetails/universal-female-young-maxmuscle-averageweight",
-        0.38
-      ],
-      [
-        "macrodetails/proportions/female-young-maxmuscle-averageweight-idealproportions",
-        0.58
-      ],
-      [
-        "torso/torso-vshape-incr",
-        0.08
-      ],
-      [
-        "hip/hip-scale-horiz-incr",
         0.12
       ],
       [
+        "macrodetails/proportions/female-young-maxmuscle-averageweight-idealproportions",
+        0.18
+      ],
+      [
+        "breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness",
+        0.3
+      ],
+      [
+        "breast/female-young-averagemuscle-averageweight-maxcup-maxfirmness",
+        0.17
+      ],
+      [
+        "breast/breast-point-decr",
+        0.34
+      ],
+      [
+        "torso/torso-vshape-incr",
+        0.1
+      ],
+      [
+        "hip/hip-scale-horiz-incr",
+        -0.08
+      ],
+      [
         "breast/nipple-size-decr",
-        1
+        0.82
       ],
       [
         "breast/nipple-point-decr",
-        1
+        0.78
       ]
     ],
     "heroic": [
@@ -57,35 +69,51 @@
       ],
       [
         "macrodetails/universal-female-young-maxmuscle-averageweight",
-        0.72
+        0.58
+      ],
+      [
+        "macrodetails/universal-female-young-averagemuscle-averageweight",
+        0.26
       ],
       [
         "macrodetails/universal-female-young-maxmuscle-minweight",
-        0.28
+        0.16
       ],
       [
         "macrodetails/proportions/female-young-maxmuscle-averageweight-idealproportions",
-        0.82
+        0.52
+      ],
+      [
+        "breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness",
+        0.26
+      ],
+      [
+        "breast/female-young-averagemuscle-averageweight-maxcup-maxfirmness",
+        0.21
+      ],
+      [
+        "breast/breast-point-decr",
+        0.32
       ],
       [
         "torso/torso-vshape-incr",
-        0.22
+        0.2
       ],
       [
         "torso/torso-scale-horiz-incr",
-        0.08
-      ],
-      [
-        "torso/torso-scale-depth-incr",
         0.06
       ],
       [
+        "torso/torso-scale-depth-incr",
+        0.04
+      ],
+      [
         "breast/nipple-size-decr",
-        1
+        0.82
       ],
       [
         "breast/nipple-point-decr",
-        1
+        0.78
       ]
     ],
     "lean": [
@@ -107,19 +135,35 @@
       ],
       [
         "macrodetails/proportions/female-young-maxmuscle-averageweight-idealproportions",
-        0.48
+        0.26
+      ],
+      [
+        "breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness",
+        0.2
+      ],
+      [
+        "breast/female-young-averagemuscle-averageweight-maxcup-maxfirmness",
+        0.16
+      ],
+      [
+        "breast/breast-point-decr",
+        0.26
       ],
       [
         "torso/torso-vshape-incr",
         0.1
       ],
       [
+        "hip/hip-scale-horiz-incr",
+        -0.12
+      ],
+      [
         "breast/nipple-size-decr",
-        1
+        0.82
       ],
       [
         "breast/nipple-point-decr",
-        1
+        0.78
       ]
     ],
     "slender": [
@@ -144,12 +188,28 @@
         0.72
       ],
       [
+        "hip/hip-scale-horiz-incr",
+        -0.16
+      ],
+      [
+        "breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness",
+        0.17
+      ],
+      [
+        "breast/female-young-averagemuscle-averageweight-maxcup-maxfirmness",
+        0.13
+      ],
+      [
+        "breast/breast-point-decr",
+        0.22
+      ],
+      [
         "breast/nipple-size-decr",
-        1
+        0.82
       ],
       [
         "breast/nipple-point-decr",
-        1
+        0.78
       ]
     ],
     "busty": [
@@ -171,19 +231,19 @@
       ],
       [
         "macrodetails/proportions/female-young-maxmuscle-averageweight-idealproportions",
-        0.45
+        0.28
       ],
       [
         "breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness",
-        0.88
+        0.74
       ],
       [
         "breast/female-young-averagemuscle-averageweight-maxcup-maxfirmness",
-        0.24
+        0.28
       ],
       [
         "breast/breast-point-decr",
-        0.82
+        0.62
       ],
       [
         "hip/hip-scale-horiz-incr",
@@ -191,11 +251,11 @@
       ],
       [
         "breast/nipple-size-decr",
-        1
+        0.82
       ],
       [
         "breast/nipple-point-decr",
-        1
+        0.78
       ]
     ],
     "chubby": [
@@ -218,6 +278,18 @@
       [
         "macrodetails/universal-female-young-minmuscle-maxweight",
         0.44
+      ],
+      [
+        "breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness",
+        0.38
+      ],
+      [
+        "breast/female-young-averagemuscle-averageweight-maxcup-maxfirmness",
+        0.11
+      ],
+      [
+        "breast/breast-point-decr",
+        0.36
       ],
       [
         "stomach/stomach-tone-decr",
@@ -261,11 +333,11 @@
       ],
       [
         "breast/nipple-size-decr",
-        1
+        0.82
       ],
       [
         "breast/nipple-point-decr",
-        1
+        0.78
       ]
     ],
     "fat": [
@@ -288,6 +360,18 @@
       [
         "macrodetails/universal-female-young-minmuscle-maxweight",
         0.82
+      ],
+      [
+        "breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness",
+        0.44
+      ],
+      [
+        "breast/female-young-averagemuscle-averageweight-maxcup-maxfirmness",
+        0.09
+      ],
+      [
+        "breast/breast-point-decr",
+        0.4
       ],
       [
         "stomach/stomach-tone-decr",
@@ -331,11 +415,11 @@
       ],
       [
         "breast/nipple-size-decr",
-        1
+        0.82
       ],
       [
         "breast/nipple-point-decr",
-        1
+        0.78
       ]
     ],
     "obese": [
@@ -358,6 +442,18 @@
       [
         "macrodetails/universal-female-young-minmuscle-maxweight",
         1.16
+      ],
+      [
+        "breast/female-young-averagemuscle-averageweight-maxcup-averagefirmness",
+        0.5
+      ],
+      [
+        "breast/female-young-averagemuscle-averageweight-maxcup-maxfirmness",
+        0.08
+      ],
+      [
+        "breast/breast-point-decr",
+        0.44
       ],
       [
         "stomach/stomach-tone-decr",
@@ -401,11 +497,11 @@
       ],
       [
         "breast/nipple-size-decr",
-        1
+        0.82
       ],
       [
         "breast/nipple-point-decr",
-        1
+        0.78
       ]
     ],
     "chibi": [
@@ -467,11 +563,11 @@
       ],
       [
         "breast/nipple-size-decr",
-        1
+        0.82
       ],
       [
         "breast/nipple-point-decr",
-        1
+        0.78
       ]
     ]
   },
@@ -491,19 +587,31 @@
       ],
       [
         "macrodetails/universal-male-young-averagemuscle-averageweight",
-        0.62
+        0.72
       ],
       [
         "macrodetails/universal-male-young-maxmuscle-averageweight",
-        0.38
+        0.28
       ],
       [
         "macrodetails/proportions/male-young-maxmuscle-averageweight-idealproportions",
-        0.52
+        0.44
       ],
       [
         "torso/torso-vshape-incr",
-        0.22
+        0.28
+      ],
+      [
+        "torso/torso-scale-horiz-incr",
+        0.07
+      ],
+      [
+        "torso/torso-scale-depth-incr",
+        0.05
+      ],
+      [
+        "hip/hip-scale-horiz-incr",
+        -0.06
       ],
       [
         "breast/nipple-size-decr",
@@ -530,6 +638,10 @@
       [
         "macrodetails/universal-male-young-maxmuscle-averageweight",
         0.78
+      ],
+      [
+        "macrodetails/universal-male-young-averagemuscle-averageweight",
+        0
       ],
       [
         "macrodetails/universal-male-young-maxmuscle-minweight",
@@ -590,6 +702,10 @@
         0.28
       ],
       [
+        "hip/hip-scale-horiz-incr",
+        -0.1
+      ],
+      [
         "breast/nipple-size-decr",
         1
       ],
@@ -618,6 +734,10 @@
       [
         "macrodetails/proportions/male-young-minmuscle-minweight-idealproportions",
         0.72
+      ],
+      [
+        "hip/hip-scale-horiz-incr",
+        -0.22
       ],
       [
         "breast/nipple-size-decr",

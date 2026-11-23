@@ -1,9 +1,15 @@
 import * as T from 'three';
+import { updateWardrobePose } from './mannequin-wardrobe';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { JOINTS, type Body, type Joint, type Pose } from './model';
+import { JOINTS, clone, type Body, type CharacterHandPoses, type Joint, type Pose } from './model';
 import type { HairStyle } from './hair';
 import type { BodyTypeId } from './bodyProportions';
 import { applyExtremePoseDeformer, clampPoseToAnatomicalLimits, type PoseLimitMode } from './skinDeformer';
+import {
+  applyFigureHandPoses,
+  solveForearmWristTwistShare,
+  type CalibratedHandRigs,
+} from './hand-rig';
 
 export interface Figure {
   modelId?: import('./characterCatalog').ModelId;
@@ -11,13 +17,18 @@ export interface Figure {
   body?: Body;
   root: T.Group; skin: T.SkinnedMesh; skins: T.SkinnedMesh[]; bones: Record<Joint, T.Bone>;
   restRotations: Record<Joint, T.Quaternion>; rotationBases: Record<Joint, T.Quaternion>;
-  tintMaterials: T.MeshStandardMaterial[]; outfitColorUniforms: Array<{ value: T.Color }>; hairMaterials: T.MeshStandardMaterial[];
+  tintMaterials: T.MeshStandardMaterial[];
+  outfitColorUniforms: Array<{ value: T.Color }>;
+  outfitIsOriginalUniforms?: Array<{ value: number }>;
+  hairMaterials: T.MeshStandardMaterial[];
   headFromNative?: T.Matrix4; hairStyle?: HairStyle;
   deformation?: { bodyType: BodyTypeId; limitMode: PoseLimitMode };
+  morphology?: import('./morphology-rig').MorphologyProfile;
+  handRigs?: CalibratedHandRigs;
 }
 const semanticPoses = new WeakMap<Figure, { pose: Pose; rotations: Record<Joint, T.Quaternion>; key: string }>();
 // Legacy regression fixture; the live studio exclusively loads the CC0 source rigs.
-export function makeFigure(body: Body, color: string): Figure {
+export function makeFigure(body: Body, color: string, outfitColor = '#ffffff'): Figure {
   const female = body === 'female';
   const shoulder = female ? 0.195 : 0.25, hip = female ? 0.125 : 0.105;
   const bones = Object.fromEntries(JOINTS.map(j => { const b = new T.Bone(); b.name = j; return [j, b]; })) as Record<Joint, T.Bone>;
@@ -117,6 +128,29 @@ export function makeFigure(body: Body, color: string): Figure {
   }
   const geometry = mergeGeometries(parts); parts.forEach(p => p.dispose());
   const material = new T.MeshStandardMaterial({ color, roughness: 0.78, metalness: 0.02 });
+  const outfitColorUniform = { value: new T.Color(outfitColor) };
+  const outfitIsOriginalUniform = { value: outfitColor.trim().toLowerCase() === '#ffffff' ? 1 : 0 };
+  material.customProgramCacheKey = () => 'pnc-procedural-figure-v1';
+  material.onBeforeCompile = shader => {
+    shader.uniforms.uOutfitColor = outfitColorUniform;
+    shader.uniforms.uOutfitIsOriginal = outfitIsOriginalUniform;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vPncProcBindPos;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPncProcBindPos = transformed;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nuniform vec3 uOutfitColor;\nuniform float uOutfitIsOriginal;\nvarying vec3 vPncProcBindPos;',
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+if ( uOutfitIsOriginal < 0.5 ) {
+  float procTorsoBand = smoothstep( 0.82, 0.85, vPncProcBindPos.y ) * ( 1.0 - smoothstep( 1.36, 1.39, vPncProcBindPos.y ) ) * ( 1.0 - smoothstep( 0.24, 0.28, abs( vPncProcBindPos.x ) ) );
+  diffuseColor.rgb = mix( diffuseColor.rgb, uOutfitColor, procTorsoBand );
+}`,
+      );
+  };
   const skin = new T.SkinnedMesh(geometry, material);
   skin.castShadow = true; skin.receiveShadow = true;
   skin.frustumCulled = false;
@@ -127,7 +161,18 @@ export function makeFigure(body: Body, color: string): Figure {
     eye.position.set(side * 0.042, 0.055, 0.094); eye.scale.set(1, 0.55, 0.35); bones.head.add(eye);
   }
   const identityMap = () => Object.fromEntries(JOINTS.map(j => [j, new T.Quaternion()])) as Record<Joint, T.Quaternion>;
-  return { root, skin, skins: [skin], bones, restRotations: identityMap(), rotationBases: identityMap(), tintMaterials: [material], outfitColorUniforms: [], hairMaterials: [] };
+  return {
+    root,
+    skin,
+    skins: [skin],
+    bones,
+    restRotations: identityMap(),
+    rotationBases: identityMap(),
+    tintMaterials: [material],
+    outfitColorUniforms: [outfitColorUniform],
+    outfitIsOriginalUniforms: [outfitIsOriginalUniform],
+    hairMaterials: [],
+  };
 }
 export const FLOOR_ANCHOR_TOLERANCE_M = 0.03;
 
@@ -170,40 +215,103 @@ export function computeAnchoredPositionY(
   return Number((currentPositionY + (targetMinWorldY - afterMinWorldY)).toFixed(5));
 }
 
-export function setFigurePose(figure: Figure, pose: Pose): void {
+export function setFigurePose(
+  figure: Figure,
+  pose: Pose,
+  handPose?: CharacterHandPoses | null,
+): void {
   if (figure.deformation && !figure.nativeRig) {
-    const effective = clampPoseToAnatomicalLimits(pose, figure.deformation.limitMode);
+    const effective = clampPoseToAnatomicalLimits(
+      pose,
+      figure.deformation.limitMode,
+      figure.morphology,
+    );
     const preRev = (figure.root.userData.__bodyProportionRevision as number) || 0;
-    const preKey = JSON.stringify([figure.deformation, effective, preRev]);
+    const preKey = JSON.stringify([figure.deformation, effective, handPose ?? null, preRev]);
     const previous = semanticPoses.get(figure);
-    if (previous?.key !== preKey || JOINTS.some(j => !figure.bones[j].quaternion.equals(previous.rotations[j]))) {
+    if (
+      previous?.key !== preKey ||
+      JOINTS.some(j => !figure.bones[j].quaternion.equals(previous.rotations[j]))
+    ) {
       const { root } = figure;
       const position = root.position.clone(), rotation = root.quaternion.clone(), scale = root.scale.clone();
       // Solve in character space: world reflections/nonuniform scales must not enter the rigid DQS solve.
       root.position.set(0, 0, 0); root.quaternion.identity(); root.scale.set(1, 1, 1);
       try {
-        applyExtremePoseDeformer(figure, effective, figure.deformation);
+        applyExtremePoseDeformer(figure, effective, {
+          ...figure.deformation,
+          onAfterPoseSolve: () => applyFigureHandPoses(figure, handPose),
+        });
+        updateWardrobePose(figure);
       } finally {
         root.position.copy(position); root.quaternion.copy(rotation); root.scale.copy(scale);
         root.updateMatrixWorld(true);
       }
       const postRev = (figure.root.userData.__bodyProportionRevision as number) || 0;
-      const postKey = JSON.stringify([figure.deformation, effective, postRev]);
+      const postKey = JSON.stringify([figure.deformation, effective, handPose ?? null, postRev]);
       semanticPoses.set(figure, {
-        pose: effective, key: postKey,
-        rotations: Object.fromEntries(JOINTS.map(j => [j, figure.bones[j].quaternion.clone()])) as Record<Joint, T.Quaternion>,
+        pose: clone(effective),
+        key: postKey,
+        rotations: Object.fromEntries(
+          JOINTS.map(j => [j, figure.bones[j].quaternion.clone()]),
+        ) as Record<Joint, T.Quaternion>,
       });
     }
     figure.root.updateMatrixWorld(true);
     figure.skins.forEach(skin => { skin.skeleton.update(); skin.computeBoundingBox(); skin.computeBoundingSphere(); });
     return;
   }
-  const effective = figure.deformation ? clampPoseToAnatomicalLimits(pose, figure.deformation.limitMode) : pose;
+
+  const effective = figure.deformation
+    ? clampPoseToAnatomicalLimits(pose, figure.deformation.limitMode, figure.morphology)
+    : pose;
+
+  const jointQuats = {} as Record<Joint, T.Quaternion>;
+  for (const j of JOINTS) {
+    jointQuats[j] = new T.Quaternion().setFromEuler(new T.Euler(...effective[j], 'XYZ'));
+  }
+
+  // Share 50% of axial wrist twist onto lowerarm_l / lowerarm_r on native LBS rigs
+  // so +/-160°..180° pronation/supination preserves wrist cross-section volume with 0m wrist shift.
+  if (figure.nativeRig && figure.handRigs) {
+    const leftShared = solveForearmWristTwistShare(
+      jointQuats.leftElbow,
+      jointQuats.leftWrist,
+      figure.handRigs.left.forearmShaftWorld,
+      0.5,
+    );
+    jointQuats.leftElbow = leftShared.elbowQuat;
+    jointQuats.leftWrist = leftShared.wristQuat;
+
+    const rightShared = solveForearmWristTwistShare(
+      jointQuats.rightElbow,
+      jointQuats.rightWrist,
+      figure.handRigs.right.forearmShaftWorld,
+      0.5,
+    );
+    jointQuats.rightElbow = rightShared.elbowQuat;
+    jointQuats.rightWrist = rightShared.wristQuat;
+  }
+
   JOINTS.forEach(j => {
     const basis = figure.rotationBases[j];
-    const delta = new T.Quaternion().setFromEuler(new T.Euler(...effective[j]));
-    figure.bones[j].quaternion.copy(figure.restRotations[j]).multiply(basis).multiply(delta).multiply(basis.clone().invert());
+    figure.bones[j].quaternion
+      .copy(figure.restRotations[j])
+      .multiply(basis)
+      .multiply(jointQuats[j])
+      .multiply(basis.clone().invert());
   });
+
+  applyFigureHandPoses(figure, handPose);
+
+  semanticPoses.set(figure, {
+    pose: clone(effective),
+    key: 'native',
+    rotations: Object.fromEntries(
+      JOINTS.map(j => [j, figure.bones[j].quaternion.clone()]),
+    ) as Record<Joint, T.Quaternion>,
+  });
+
   figure.root.updateMatrixWorld(true);
   figure.skins.forEach(skin => {
     skin.skeleton.update(); skin.computeBoundingBox(); skin.computeBoundingSphere();
@@ -211,11 +319,14 @@ export function setFigurePose(figure: Figure, pose: Pose): void {
 }
 export function getJointRotation(figure: Figure, joint: Joint): [number, number, number] {
   const basis = figure.rotationBases[joint];
-  const reference = figure.deformation ? semanticPoses.get(figure) : undefined;
+  const reference = semanticPoses.get(figure);
   if (reference) {
-    // Coupled helper bones compensate semantic joints; measure only the user's new FK delta.
+    if (figure.bones[joint].quaternion.angleTo(reference.rotations[joint]) < 1e-7) {
+      return [...reference.pose[joint]] as [number, number, number];
+    }
+    // Coupled helper bones or forearm twist-sharing compensate semantic joints; measure only the user's new FK delta.
     const localDelta = reference.rotations[joint].clone().invert().multiply(figure.bones[joint].quaternion);
-    const semantic = new T.Quaternion().setFromEuler(new T.Euler(...reference.pose[joint]))
+    const semantic = new T.Quaternion().setFromEuler(new T.Euler(...reference.pose[joint], 'XYZ'))
       .multiply(basis.clone().invert()).multiply(localDelta).multiply(basis);
     const euler = new T.Euler().setFromQuaternion(semantic, 'XYZ');
     return [euler.x, euler.y, euler.z];
