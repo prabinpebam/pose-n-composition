@@ -110,6 +110,7 @@ Travel is measured in the local garment frame: **7.5 cm** for the tank, **10 cm*
 |---|---|
 | Orbit / pan / zoom | Left drag / right drag / wheel |
 | Whole-object move / rotate / scale | Labeled toolbar or W / E / R |
+| Selected joint: Position (IK) / Rotation (FK) | W / E; keeps the node selected and its pins intact |
 | Joint rotate | Click a gold node, then drag a colored ring; Editing is optional |
 | Frame selected / camera view | Frame or F / Camera view or C |
 | Return to root / dismiss help | Escape |
@@ -255,8 +256,19 @@ PNG hides joints, light icons, gizmos and grid.
 
 ## Scope and limitations
 
-Static FK posing with optional anatomical bounds and animation-frame extraction:
-no IK, finger articulation, rig authoring or user model import. Figures are stylized
+In **Joint & preset posing → Pose mode**, choose **Position (IK)**, select a joint,
+then drag a colored axis or plane on its move gizmo. Limbs bend at their sockets;
+moving the hips shifts the figure. Unreachable targets stop at the closest pose
+the bounded solver finds without stretching bones. Use **Rotation (FK)** for
+direct joint rotation. Right-click a joint dot (or use its **Pin position** button)
+to hold its current position, not its orientation. Cyan pins work in both modes;
+incompatible edits may stop short or leave the previous pose unchanged. A drag is
+one undo step. Pins travel with whole-object transforms and scene saves; portable
+pose files contain rotations, not pins. Replacing a pose or changing body
+proportions/limits clears its old pins.
+
+Static posing with optional anatomical bounds and animation-frame extraction:
+no rig authoring or user character-rig import. Figures are stylized
 reference bodies, not medical anatomy. Analytical contact reduces extreme-pose
 pinching/intersection, but is not a full cloth/soft-body or inter-character collision
 simulation; impossible free rotations can still intersect. Skin and outfit albedo maps are

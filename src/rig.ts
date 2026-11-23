@@ -4,7 +4,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { JOINTS, clone, type Body, type CharacterHandPoses, type Joint, type Pose } from './model';
 import type { HairStyle } from './hair';
 import type { BodyTypeId } from './bodyProportions';
-import { applyExtremePoseDeformer, clampPoseToAnatomicalLimits, type PoseLimitMode } from './skinDeformer';
+import { applyExtremePoseDeformer, clampPoseToAnatomicalLimits, solveCoupledRigPose, type PoseLimitMode } from './skinDeformer';
 import {
   applyFigureHandPoses,
   solveForearmWristTwistShare,
@@ -266,6 +266,24 @@ export function setFigurePose(
     ? clampPoseToAnatomicalLimits(pose, figure.deformation.limitMode, figure.morphology)
     : pose;
 
+  applyNativePoseBones(figure, effective);
+  applyFigureHandPoses(figure, handPose);
+
+  semanticPoses.set(figure, {
+    pose: clone(effective),
+    key: 'native',
+    rotations: Object.fromEntries(
+      JOINTS.map(j => [j, figure.bones[j].quaternion.clone()]),
+    ) as Record<Joint, T.Quaternion>,
+  });
+
+  figure.root.updateMatrixWorld(true);
+  figure.skins.forEach(skin => {
+    skin.skeleton.update(); skin.computeBoundingBox(); skin.computeBoundingSphere();
+  });
+}
+
+function applyNativePoseBones(figure: Figure, effective: Pose) {
   const jointQuats = {} as Record<Joint, T.Quaternion>;
   for (const j of JOINTS) {
     jointQuats[j] = new T.Quaternion().setFromEuler(new T.Euler(...effective[j], 'XYZ'));
@@ -302,20 +320,28 @@ export function setFigurePose(
       .multiply(basis.clone().invert());
   });
 
-  applyFigureHandPoses(figure, handPose);
+}
 
-  semanticPoses.set(figure, {
-    pose: clone(effective),
-    key: 'native',
-    rotations: Object.fromEntries(
-      JOINTS.map(j => [j, figure.bones[j].quaternion.clone()]),
-    ) as Record<Joint, T.Quaternion>,
-  });
-
-  figure.root.updateMatrixWorld(true);
-  figure.skins.forEach(skin => {
-    skin.skeleton.update(); skin.computeBoundingBox(); skin.computeBoundingSphere();
-  });
+/** Evaluate semantic FK without skinning vertices, recomputing bounds, or moving clothing. */
+export function evaluatePoseBones(figure: Figure, pose: Pose): Pose {
+  const effective = figure.deformation
+    ? clampPoseToAnatomicalLimits(pose, figure.deformation.limitMode, figure.morphology)
+    : pose;
+  const { root } = figure;
+  if (figure.deformation && !figure.nativeRig) {
+    const pos = root.position.clone(), quat = root.quaternion.clone(), scale = root.scale.clone();
+    root.position.set(0, 0, 0); root.quaternion.identity(); root.scale.setScalar(1);
+    try {
+      solveCoupledRigPose(figure, effective, figure.deformation);
+    } finally {
+      root.position.copy(pos); root.quaternion.copy(quat); root.scale.copy(scale);
+      root.updateMatrixWorld(true);
+    }
+  } else {
+    applyNativePoseBones(figure, effective);
+    root.updateMatrixWorld(true);
+  }
+  return effective;
 }
 export function getJointRotation(figure: Figure, joint: Joint): [number, number, number] {
   const basis = figure.rotationBases[joint];

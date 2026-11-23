@@ -5,7 +5,8 @@
 Original, desktop-first static figure-posing and composition studio. No copied source,
 models or visual design. No accounts, backend, animation, physics, rig authoring,
 photorealistic anatomy, individual finger articulation or cloud synchronization.
-FK posing is deliberately preferred to a fragile partial IK solver.
+Rotation (FK) is the default. Position (IK) must manipulate joint origins without
+stretching bones; existing pins take priority over an incompatible edit in either mode.
 
 ## Plan
 
@@ -21,6 +22,12 @@ FK posing is deliberately preferred to a fragile partial IK solver.
 ## Measurable acceptance matrix
 
 Unchecked items are not completion claims. Evidence is recorded after execution.
+
+**Position-mode acceptance:** [Rig tests](../src/poseIK.test.ts) exercise a wrist
+reach on a turned, reflected, non-uniformly scaled mannequin, successive hips
+moves over two planted feet, and reachable and incompatible FK edits. The
+reachable wrist must finish within 2 mm of its goal; each pin must drift less
+than 0.8 mm. These are solver tests, not a substitute for a real viewport drag.
 
 | Requirement | Acceptance | Evidence |
 |---|---|---|
@@ -364,7 +371,7 @@ Executed local evidence:
   including atomic Undo/Redo and preservation of the other 13 joints.
 
 Screenshots are session evidence outside the repository, not production assets.
-Remaining boundaries: static FK/frame extraction rather than simulation, no IK,
+Remaining boundaries at that milestone: static FK/frame extraction rather than simulation, no IK,
 finger articulation, furniture/inter-character collisions, or medical guarantees.
 
 ## CC0 artist-sculpted mannequin integration, multi-character isolation & UX refinements (2026-11-20)

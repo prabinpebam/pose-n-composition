@@ -430,6 +430,12 @@ export function App() {
   const [poseClipboard, setPoseClipboard] = useState<PoseClipboard | null>(null);
   const [copyNodes, setCopyNodes] = useState<Joint[]>([...JOINTS]);
   const [joint, setJoint] = useState<Joint | null>(null);
+  const [positionPosing, setPositionPosing] = useState(false);
+  const choosePositionPosing = useCallback((enabled: boolean) => {
+    if (engine.current?.isDraggingTransform()) return;
+    engine.current?.setPositionPosing(enabled);
+    setPositionPosing(enabled);
+  }, []);
   const [lightPart, setLightPart] = useState<LightPart>('source');
   const [tab, setTab] = useState<Tab>('object');
   const [view, setView] = useState(false),
@@ -528,12 +534,16 @@ export function App() {
   );
 
   const commit = useCallback(
-    (next: SceneState, viewPatch?: Partial<WorkingViewState>, coalesceKey?: string | null) => {
+    (next: SceneState, viewPatch?: Partial<WorkingViewState>, coalesceKey?: string | null, preservePins = false) => {
       for (const figure of next.items) {
         if (!isBody(figure.kind) || !figure.pose) continue;
         const previous = current.current.items.find(i => i.id === figure.id);
         const pose = figure.pose, previousPose = previous?.pose;
         const poseChanged = !previousPose || JOINTS.some(j => pose[j].some((v, axis) => v !== previousPose[j][axis]));
+        if (!preservePins && previous && (poseChanged || previous.modelId !== figure.modelId ||
+          previous.bodyType !== figure.bodyType || previous.anatomicalLimits !== figure.anatomicalLimits)) {
+          delete figure.posePins;
+        }
         if (poseChanged || (figure.anatomicalLimits !== false && previous?.anatomicalLimits === false)) {
           const morph =
             engine.current?.getFigure(figure.id)?.morphology ??
@@ -1948,7 +1958,7 @@ export function App() {
   );
 
   const studioCallbacksRef = useRef({
-    change: (next: SceneState) => commit(next),
+    change: (next: SceneState) => commit(next, undefined, null, true),
     liveChange: (liveScene: SceneState) => {
       setDoc(liveScene);
       queueDraftPersistence(buildDraft(liveScene));
@@ -1967,7 +1977,7 @@ export function App() {
     error: report,
   });
   studioCallbacksRef.current = {
-    change: (next: SceneState) => commit(next),
+    change: (next: SceneState) => commit(next, undefined, null, true),
     liveChange: (liveScene: SceneState) => {
       setDoc(liveScene);
       queueDraftPersistence(buildDraft(liveScene));
@@ -2308,12 +2318,12 @@ export function App() {
           break;
         }
         case 'mode-translate':
-          setJoint(null);
-          setMode('translate');
-          break;
         case 'mode-rotate':
-          setJoint(null);
-          setMode('rotate');
+          if (liveSettings.current.joint !== null && selectionRef.current.length === 1) {
+            choosePositionPosing(cmd.action === 'mode-translate');
+          } else {
+            setMode(cmd.action === 'mode-translate' ? 'translate' : 'rotate');
+          }
           break;
         case 'mode-scale':
           setJoint(null);
@@ -2335,7 +2345,7 @@ export function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [undo, removeSelected, help, loading, loadError, commit, cancelActiveCaddy, modelingMode, selectedOperandId]);
+  }, [undo, removeSelected, help, loading, loadError, commit, cancelActiveCaddy, modelingMode, selectedOperandId, choosePositionPosing]);
 
   useEffect(() => {
     if (!animPlaying || !activeClip) return;
@@ -2515,7 +2525,7 @@ export function App() {
       setJoint(null);
       setLightPart('source');
       setSaveName(valid.name);
-      commit(valid, { selectedId: nextSelected, selectedJoint: null, selectedLightPart: 'source' });
+      commit(valid, { selectedId: nextSelected, selectedJoint: null, selectedLightPart: 'source' }, null, true);
       notify('Scene loaded. Undo returns to the previous scene.');
     } else {
       if (!item || !isBody(item.kind)) throw new Error('Select a figure before loading a pose.');
@@ -5146,6 +5156,19 @@ export function App() {
                     </details>
 
                     <div className="select-field">
+                      <span className="field-label">Pose mode</span>
+                      <SelectDropdown
+                        ariaLabel="Pose mode"
+                        value={positionPosing ? 'position' : 'rotation'}
+                        options={[{value: 'rotation', label: 'Rotation (FK)'}, {value: 'position', label: 'Position (IK)'}]}
+                        onChange={v => choosePositionPosing(v === 'position')}
+                      />
+                    </div>
+                    <p className="hint">
+                      {positionPosing ? 'Select a joint and drag an arrow or plane to move it in 3D. ' : ''}
+                      Right-click a joint to pin or unpin its position. Cyan joints stay pinned in both modes.
+                    </p>
+                    <div className="select-field">
                       <span className="field-label">Editing target</span>
                       <SelectDropdown
                         ariaLabel="Editing joint"
@@ -5159,6 +5182,10 @@ export function App() {
                       const activeFigure = engine.current?.getFigure(item.id);
                       const handRigs = activeFigure?.handRigs ?? null;
                       const isWrist = joint === 'leftWrist' || joint === 'rightWrist';
+                      const applyRotation = (p: Pose) => {
+                        if (item.posePins) engine.current?.editJointRotation(item.id, joint, p[joint]);
+                        else editItem({pose: p});
+                      };
                       const inspectorDeg = poseJointToInspectorDegrees(
                         item.pose[joint],
                         joint,
@@ -5180,10 +5207,15 @@ export function App() {
                           item.anatomicalLimits === false ? 'free' : 'anatomical',
                           resolveItemMorphology(item),
                         );
-                        editItem({ pose: clamped });
+                        applyRotation(clamped);
                       };
                       return (
                         <>
+                          <button type="button" className="full-btn"
+                            disabled={animPreviewing || view || item.locked || item.visible === false}
+                            onClick={() => engine.current?.toggleJointPin(item.id, joint)}>
+                            {item.posePins?.[joint] ? 'Unpin' : 'Pin'} {label(joint)} position
+                          </button>
                           <Vector3Field
                             label={
                               isWrist && handRigs
@@ -5199,7 +5231,7 @@ export function App() {
                             onReset={() => {
                               const p = clone(item.pose!);
                               p[joint] = [0, 0, 0];
-                              editItem({ pose: p });
+                              applyRotation(p);
                             }}
                           />
                           {isWrist && handRigs && (
@@ -5933,7 +5965,9 @@ export function App() {
                 <dt>Left drag / Middle or Right drag / Wheel</dt>
                 <dd>Surface-depth orbit / 1:1 depth pan / Cursor zoom</dd>
                 <dt>W / E / R</dt>
-                <dd>Move / Rotate / Scale (Objects, Operands, Joints &amp; Mesh Components)</dd>
+                <dd>Move / Rotate / Scale objects, operands and mesh components</dd>
+                <dt>W / E with a joint selected</dt>
+                <dd>Switch that joint to Position (IK) / Rotation (FK); pins stay in place</dd>
                 <dt>Shift + Drag (Rotate)</dt>
                 <dd>Snap rotation to 15° increments</dd>
                 <dt>1 / 2 / 3 / 4 / 5</dt>

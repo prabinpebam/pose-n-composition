@@ -331,6 +331,34 @@ solve in a well-defined coordinate frame. Bake the result into the same local FK
 rotations at drag end. Test a rotated/scaled figure root and unequal limb lengths.
 No full-body IK, automatic balance, collision or floor contact is implied.
 
+### Joint targets, constrained rotation and multiple position pins
+
+**Interaction precedent.** [Blender's IK constraint](https://docs.blender.org/manual/en/latest/animation/constraints/tracking/ik_solver.html)
+separates target position from orientation, bounds the ancestor chain, and uses a pole to choose the elbow/knee side.
+[Unreal Control Rig's Full-Body IK](https://dev.epicgames.com/documentation/en-us/unreal-engine/control-rig-full-body-ik-in-unreal-engine)
+lets an animator manipulate multiple hand/foot/head controls together; preferred bends are distinct from locked or limited rotation axes.
+For this editor, offer **Move joint** alongside **Rotate joint**. Drag a target on a view-facing plane for two dimensions
+or along a gizmo axis for depth. Moving an elbow pivot requires rotating its ancestors; rotating the elbow itself moves the wrist, not the elbow.
+
+**Pin contract (recommendation).** Capture the selected pivot's world position once on pin; release it only on unpin or explicit retarget.
+A pinned wrist can still twist. A shoulder rotation, however, must compensate elsewhere if it would displace that wrist.
+Treat the requested rotation or drag as secondary to existing pins, not as an unconditional edit followed by independent limb fixes.
+Measure every pin after applying joint limits and updating world transforms; if any exceeds tolerance, shorten the edit or keep the last feasible pose.
+Show the remaining gap to the drag target rather than moving the pin marker to hide it.
+
+| Solver | When to use it | Where it fails without extra work |
+|---|---|---|
+| Analytic two-link IK | One wrist/ankle, fixed limb base: use measured lengths `a, b` and clamp target distance to `[abs(a-b), a+b]` before computing the bend. | Does not solve shared ancestors. At full fold/extension the bend plane is ambiguous; reuse the previous bend plane or a rest-pose pole. At zero target distance, do not normalize the zero vector. |
+| [FABRIK (Aristidou & Lasenby, 2011)](https://www.andreasaristidou.com/FABRIK) | Alternating passes place joints at fixed link distances; the paper covers branching chains and multiple effectors. | Joint positions alone do not determine axial twist. Reconstruct local rotations against the previous pose, apply angular limits, then recheck all endpoints. |
+| [Damped least squares (Buss & Kim, 2005)](https://mathweb.ucsd.edu/~sbuss/ResearchWeb/ikmethods/) | Solve stacked position errors using shared joint angles. The authors show that clamping target error reduces oscillation for unreachable goals; selective damping varies by singular direction. | More work per update than a limb solve. A weighted fit can trade a visible foot slip for a closer hand; high weight is not a hard pin. Bound angular steps and iterations, and test pin feasibility separately. |
+
+**Repo fit and verification.** [Figure](../src/rig.ts) exposes semantic bones, rest rotations and rotation bases.
+Use the posed figure's actual pivots and frames, not hard-coded axes or fixture lengths; a target is an input to rotation solving,
+not a new bone offset. Test two planted ankles while reaching with a wrist, rotating a shoulder with its wrist pinned,
+and a straight or unequal-length limb crossing its reach boundary. Repeat on a turned/scaled figure.
+Record maximum world-space pin drift against a stated figure-scale tolerance, target error, and whether consecutive poses remain finite
+and on the same bend side. These are proposed checks, not measured results.
+
 ### Desktop accessibility
 
 The canvas cannot be the only way to select or modify content:

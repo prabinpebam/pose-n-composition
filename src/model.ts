@@ -105,6 +105,8 @@ export const DEFAULT_RENDER_STYLE: Readonly<RenderStyleState> = {
 export const JOINTS = ['hips', 'spine', 'chest', 'neck', 'head', 'leftShoulder', 'leftElbow', 'leftWrist', 'rightShoulder', 'rightElbow', 'rightWrist', 'leftHip', 'leftKnee', 'leftAnkle', 'rightHip', 'rightKnee', 'rightAnkle'] as const;
 export type Joint = typeof JOINTS[number];
 export type Pose = Record<Joint, Vec3>;
+/** Captured joint origins in figure-local coordinates; scene transforms carry the pins. */
+export type PosePins = Partial<Record<Joint, Vec3>>;
 export type Body = 'male' | 'female';
 export const DEFAULT_HAIR_COLOR = '#3b2720';
 export const DEFAULT_MALE_SKIN_COLOR = '#d9a17c';
@@ -461,7 +463,7 @@ export function clothPoseKey(i: Item): string {
 
 export interface Item {
   id: string; name: string; kind: Body | PropKind | 'light' | ModelingItemKind; color: string;
-  position: Vec3; rotation: Vec3; scale: Vec3; pose?: Pose; handPose?: CharacterHandPoses; outfitColor?: string; hairColor?: string; hairStyle?: HairStyleId;
+  position: Vec3; rotation: Vec3; scale: Vec3; pose?: Pose; posePins?: PosePins; handPose?: CharacterHandPoses; outfitColor?: string; hairColor?: string; hairStyle?: HairStyleId;
   dressMapId?: MannequinDressPresetId;
   /** Independent polygon clothing; absent in legacy scenes. */
   wardrobe?: { tank?: true; skirt?: true; outer?: 'jacket' | 'trench' | 'trenchHeld';
@@ -1720,6 +1722,14 @@ function validateSceneItem(raw: unknown, ids: Set<string>, depth = 0): Item {
     item.modelId = i.modelId === undefined ? defaultModelId(kind) :
       isModelId(i.modelId) && CHARACTERS[i.modelId].body === kind ? i.modelId : fail('unknown or incompatible character model');
     item.pose = validatePose(i.pose);
+    if (i.posePins !== undefined) {
+      const pins: PosePins = {};
+      for (const [name, target] of Object.entries(obj(i.posePins))) {
+        if (!JOINTS.includes(name as Joint)) fail('unknown pinned joint');
+        pins[name as Joint] = vec(target);
+      }
+      if (Object.keys(pins).length) item.posePins = pins;
+    }
     const parsedHandPose = validateCharacterHandPoses(i.handPose);
     if (parsedHandPose) item.handPose = parsedHandPose;
     item.bodyType = i.bodyType === undefined ? DEFAULT_BODY_TYPE : isBodyTypeId(i.bodyType) ? i.bodyType : fail('unknown body proportion');

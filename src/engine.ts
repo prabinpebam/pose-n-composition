@@ -32,6 +32,7 @@ import {
 } from './rooms';
 import type { RoomId } from './roomCatalog';
 import { pickJointMarker, sizeJointMarker } from './joint-markers';
+import { capturePin, solvePoseEdit, type PoseEdit } from './poseIK';
 import { HELPER_LAYER, STAGE_LAYER, NprInkPass, StudioShadingController, needsInk, paperColor, setLayerRecursive } from './npr';
 import {
   applyLightShadowQuality,
@@ -448,6 +449,9 @@ export class Studio {
   private posePreviewId: string | null = null;
   private fitPlane?: {plane:T.Plane; grab:T.Vector3};
   readonly groupPivot = new T.Object3D();
+  private jointTarget = new T.Object3D();
+  private positionPosing = false;
+  private solvedDrag: ReturnType<typeof solvePoseEdit> | null = null;
   private groupBase: { items: Item[]; inverse: T.Matrix4 } | null = null;
   private fkDragAnchor: { itemId: string; anchor: FkDragAnchor; latestEuler?: Vec3 } | null = null;
   private marquee: { pointer: number; x: number; y: number; additive: boolean; element: HTMLDivElement } | null = null;
@@ -519,6 +523,7 @@ export class Studio {
     this.transform = new TransformControls(this.editorCamera, this.renderer.domElement);
     this.transform.setSize(0.85);
     this.scene.add(this.groupPivot);
+    this.scene.add(this.jointTarget);
     this.scene.add(this.garmentHandles);
     this.scene.add(this.componentOverlay.group);
     this.scene.add(this.componentProxy.proxyObject);
@@ -618,6 +623,8 @@ export class Studio {
     this.transform.addEventListener('change', this.handleTransformChange);
     this.transform.addEventListener('mouseDown', () => {
       this.fkDragAnchor = null;
+      this.solvedDrag = null;
+      if (this.transform.object === this.jointTarget) return;
       if (this.fitSelection) { this.beginFitDrag(); return; }
       if (this.transform.object === this.componentProxy.proxyObject && this.selected && this.state) {
         const found = findItemOrOperand(this.state.items, this.selected);
@@ -723,30 +730,21 @@ export class Studio {
       if (this.joint && this.selected) {
         const entry = this.entries.get(this.selected), item = this.state?.items.find(i => i.id === this.selected);
         if (entry?.figure && item?.pose) {
-          const pose = clone(item.pose);
-          if (
-            this.fkDragAnchor &&
-            this.fkDragAnchor.itemId === this.selected &&
-            this.fkDragAnchor.anchor.joint === this.joint
-          ) {
-            pose[this.joint] = cleanSnappedEulerVec(
-              computeAnchoredFkDragEuler(
-                this.fkDragAnchor.anchor,
-                entry.figure.bones[this.joint].quaternion,
-              ),
-              this.rotationSnapActive,
-            );
-            setFigurePose(entry.figure, pose, item.handPose);
-            this.fkDragAnchor.latestEuler = cleanSnappedEulerVec(
-              getJointRotation(entry.figure, this.joint),
-              this.rotationSnapActive,
-            );
+          if (this.transform.object === this.jointTarget) {
+            this.applyJointEdit(item, entry.figure, {joint: this.joint, target: this.jointTarget.position});
           } else {
-            pose[this.joint] = cleanSnappedEulerVec(
+            const anchor = this.fkDragAnchor?.itemId === this.selected &&
+              this.fkDragAnchor.anchor.joint === this.joint ? this.fkDragAnchor : null;
+            const rotation = cleanSnappedEulerVec(anchor
+              ? computeAnchoredFkDragEuler(anchor.anchor, entry.figure.bones[this.joint].quaternion)
+              : getJointRotation(entry.figure, this.joint), this.rotationSnapActive);
+            const pose = {...item.pose, [this.joint]: rotation};
+            if (item.posePins) this.applyJointEdit(item, entry.figure, {joint: this.joint, rotation});
+            else setFigurePose(entry.figure, pose, item.handPose);
+            if (anchor) anchor.latestEuler = cleanSnappedEulerVec(
               getJointRotation(entry.figure, this.joint),
               this.rotationSnapActive,
             );
-            setFigurePose(entry.figure, pose, item.handPose);
           }
         }
       }
@@ -789,6 +787,7 @@ export class Studio {
         this.transformChanged = false;
       }
       this.fkDragAnchor = null;
+      this.solvedDrag = null;
       this.groupBase = null;
       setTimeout(() => { this.recentlyDragged = false; }, 0);
     });
@@ -1138,7 +1137,8 @@ export class Studio {
       this.renderer.domElement.style.cursor = 'pointer';
       this.emitHoverTip({
         title: formattedJoint,
-        description: 'Click to select & rotate joint',
+        description: `${this.positionPosing ? 'Select to move' : 'Select to rotate'} · Right-click to ${
+          this.state?.items.find(i => i.id === this.selected)?.posePins?.[rawJoint as Joint] ? 'unpin' : 'pin'}`,
         clientX,
         clientY,
       });
@@ -1385,7 +1385,9 @@ export class Studio {
   };
   private updateMarkerColors(): void {
     for (const entry of this.entries.values()) entry.markers?.forEach(m => {
-      m.material.color.set(m.userData.joint === this.joint ? '#ff826b' : m === this.hoveredMarker ? '#ffffff' : '#ffd07d');
+      const pins = this.state?.items.find(i => i.id === entry.root.userData.itemId)?.posePins;
+      m.material.color.set(pins?.[m.userData.joint as Joint] ? '#62e7ee' :
+        m.userData.joint === this.joint ? '#ff826b' : m === this.hoveredMarker ? '#ffffff' : '#ffd07d');
     });
   }
   private isHitLocked(hitObject: T.Object3D): boolean {
@@ -1600,6 +1602,14 @@ export class Studio {
   private pointerUp = (event: PointerEvent) => {
     this.lastDragPointerEvent = null;
     this.syncRotationSnap(event.shiftKey, false);
+    if (event.button === 2) {
+      if (!event.altKey && !this.transform.dragging && this.selected && this.selectedIds.length === 1 &&
+          this.pointerStart.distanceTo(new T.Vector2(event.clientX, event.clientY)) <= 4) {
+        const marker = this.markerAt(event);
+        if (marker) this.toggleJointPin(this.selected, marker.userData.joint);
+      }
+      return;
+    }
     if (this.recentlyDragged || this.transform.dragging || this.transform.axis !== null || this.pointerStart.distanceTo(new T.Vector2(event.clientX, event.clientY)) > 4) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
     if (!this.cameraView && this.modelingMode !== 'object' && this.selected && this.state) {
@@ -1969,7 +1979,7 @@ export class Studio {
     const itemLocked = Boolean(item?.locked);
     for (const [key, e] of this.entries) e.markers?.forEach(m => {
       const locked = this.state?.items.find(i => i.id === key)?.locked;
-      m.visible = key === id && !locked && !this.fitSelection && this.selectedIds.length < 2 && this.jointsVisible && !this.cameraView;
+      m.visible = key === id && item?.visible !== false && !locked && !this.fitSelection && this.selectedIds.length < 2 && this.jointsVisible && !this.cameraView;
     });
     this.updateMarkerColors();
     this.transform.detach();
@@ -2066,7 +2076,16 @@ export class Studio {
       this.transform.attach(e.root);
       return;
     }
-    if (e && !this.cameraView && !itemLocked) {
+    if (e && !this.cameraView && !itemLocked && item?.visible !== false && this.posePreviewId !== id) {
+      if (this.positionPosing && joint && e.figure) {
+        if (!item?.posePins?.[joint]) {
+          e.figure.bones[joint].getWorldPosition(this.jointTarget.position);
+          this.transform.setMode('translate');
+          this.transform.setSpace('world');
+          this.transform.attach(this.jointTarget);
+        }
+        return;
+      }
       this.transform.setMode(joint ? 'rotate' : this.mode);
       this.transform.setSpace(joint ? 'local' : this.coordSpace);
       this.transform.attach(joint && e.figure ? e.figure.bones[joint] : e.root);
@@ -2382,6 +2401,8 @@ export class Studio {
           scale: roomObj.group.scale.toArray() as Vec3,
         };
       }
+    } else if (this.joint && this.solvedDrag) {
+      Object.assign(item, this.solvedDrag);
     } else if (this.joint && entry.figure && item.pose) {
       item.pose[this.joint] = cleanSnappedEulerVec(
         this.fkDragAnchor &&
@@ -2415,6 +2436,38 @@ export class Studio {
   }
   getFigure(id: string): Figure | null {
     return this.entries.get(id)?.figure ?? null;
+  }
+  setPositionPosing(enabled: boolean) {
+    if (enabled === this.positionPosing) return;
+    this.positionPosing = enabled;
+    if (this.selected && this.joint) this.select(this.selected, this.joint, this.selectedIds);
+  }
+  toggleJointPin(id: string, joint: Joint) {
+    const figure = this.getFigure(id);
+    if (!figure || !this.state || this.posePreviewId || this.cameraView || this.transform.dragging) return;
+    const next = clone(this.state), item = next.items.find(i => i.id === id);
+    if (!item?.pose || item.locked || item.visible === false) return;
+    const pins = { ...item.posePins };
+    if (pins[joint]) delete pins[joint];
+    else pins[joint] = capturePin(figure, joint);
+    if (Object.keys(pins).length) item.posePins = pins;
+    else delete item.posePins;
+    this.options.change(next);
+  }
+  private applyJointEdit(item: Item, figure: Figure, edit: PoseEdit) {
+    if (!item.pose) return;
+    const base = this.solvedDrag ?? {pose: item.pose, posePins: item.posePins, position: item.position};
+    this.solvedDrag = solvePoseEdit(figure, base, edit);
+    setFigurePose(figure, this.solvedDrag.pose, item.handPose);
+  }
+  editJointRotation(id: string, joint: Joint, rotation: Vec3) {
+    const figure = this.getFigure(id);
+    if (!figure || !this.state || this.posePreviewId || this.cameraView) return;
+    const next = clone(this.state), item = next.items.find(i => i.id === id);
+    if (!item?.pose || item.locked || item.visible === false) return;
+    Object.assign(item, solvePoseEdit(figure, {pose: item.pose, position: item.position, posePins: item.posePins}, {joint, rotation}));
+    setFigurePose(figure, item.pose, item.handPose);
+    this.options.change(next);
   }
   private clothJob?: { id:string; key:string; cancel:()=>void };
   editGarmentFit(itemId:string, garment:Garment | null) {
@@ -2567,9 +2620,7 @@ export class Studio {
     entry.root.updateMatrixWorld(true);
     entry.figure.skin.skeleton.update();
     this.syncLinkedLightEntriesInScene();
-    if (this.selected === id && !this.cameraView) {
-      this.transform.attach(this.joint ? entry.figure.bones[this.joint] : entry.root);
-    }
+    if (this.selected === id) this.transform.detach();
     this.liveShadowRevision++;
     this.governor.invalidate('scene');
   }
