@@ -471,6 +471,10 @@ describe('Mannequin Male & Female: Proportions, Scalp-Fitted 3D Hair & 2048x2048
       expect(zBustApex).toBeGreaterThan(zInframammary + 0.032);
       // Clean ~2cm medial sternum separation (never fused into a uniboob!)
       expect(zBustApex - zSternumValley).toBeGreaterThan(0.034);
+      // Require fullness off-axis and below the apex, not just a taller tip.
+      const lowerLateral = maxFrontZInBand(1.225, 0.115, 0.13);
+      expect(lowerLateral - zSternumValley).toBeGreaterThan(0.05);
+      expect(zBustApex - lowerLateral).toBeLessThan(0.025);
     });
   });
 

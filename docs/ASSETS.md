@@ -485,6 +485,11 @@ the raw-cage timing.
 
 ### Mannequin dress maps
 
+The realistic female GLB's `Body` is the visible default surface. The asset
+builder rounds the adult female chest in normalized bind space before encoding
+the archetype deltas, preserving joint centers, UVs and garment donor indices.
+After changing this surface, rerun the wardrobe bake to refit the torso garments.
+
 **Separate polygon wardrobe (Mannequin Female only).** Tank, cropped jacket,
 open trench and pencil skirt are original MIT project patterns, fitted to the
 existing CC0 MakeHuman body. No third-party clothing or texture downloads.

@@ -1466,6 +1466,31 @@ function createGlb(meshes, bones, names, parents, worldQuaternions, texture) {
   return result;
 }
 
+// Work in normalized bind space, after the coronal UV split: changing the
+// chest must not recenter the skeleton or renumber garment donor vertices.
+function roundFemaleChest(shapes) {
+  const reference = shapes.realistic.meshes[0].position.slice();
+  for (const [type, gain] of Object.entries({
+    realistic: 1, heroic: 0.96, lean: 0.76, slender: 0.68,
+    busty: 1.2, chubby: 0.92, fat: 0.88, obese: 0.84,
+  })) {
+    const body = shapes[type].meshes[0];
+    for (let i = 0; i < reference.length; i += 3) {
+      const x = reference[i], y = reference[i + 1], z = reference[i + 2];
+      const ax = Math.abs(x), dx = ax - 0.093, dy = y - 1.245;
+      const r2 = (dx / 0.094) ** 2 + (dy / (dy < 0 ? 0.052 : 0.135)) ** 2;
+      if (r2 >= 1 || z <= 0.025) continue;
+      const lobe = gain * (1 - smooth(0, 1, r2)) * smooth(0.025, 0.08, z) * smooth(0.009, 0.038, ax);
+      // Fill the flanks more than the existing tip; slide the lower pole
+      // slightly down and outward while leaving the sternal strip untouched.
+      body.position[i] += Math.sign(x) * lobe * (0.003 + 0.15 * dx);
+      body.position[i + 1] -= 0.005 * lobe;
+      body.position[i + 2] += lobe * (0.040 - 0.010 * smooth(0.125, 0.148, z));
+    }
+    body.normal = normals(body);
+  }
+}
+
 async function build() {
   await mkdir(OUT, { recursive: true });
   try { sourceLock = JSON.parse(await readFile(path.join(OUT, 'sources.lock.json'), 'utf8')); }
@@ -1622,6 +1647,13 @@ async function build() {
     }
     const baseline = shapeData.realistic;
     computePaperDollDressAttributes(baseline.meshes[0], baseline.bones, names, sex);
+    if (sex === 'female') {
+      roundFemaleChest(shapeData);
+      for (const [type, shape] of Object.entries(shapeData)) {
+        const box = new T.Box3().setFromArray(shape.meshes[0].position);
+        report.shapes[`${sex}/${type}`].bounds = { min: box.min.toArray(), max: box.max.toArray() };
+      }
+    }
     const texture = bodyTexture(base, baseline.points, sex, rig, names);
     await writeFile(path.join(OUT, `Mannequin_${title}.png`), texture);
     await writeFile(path.join(OUT, `Mannequin_${title}_Chibi.png`), bodyTexture(base, baseline.points, sex, rig, names, true));

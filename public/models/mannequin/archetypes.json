@@ -167,8 +167,8 @@
               "name": "Body",
               "byteOffset": 1008768,
               "byteLength": 356688,
-              "scale": 0.0000011306610845384143,
-              "maximumError": 5.653216725333421e-7
+              "scale": 0.0000012198879277749813,
+              "maximumError": 6.099350941487537e-7
             },
             {
               "name": "Eyes",
@@ -235,8 +235,8 @@
               "name": "Body",
               "byteOffset": 1874032,
               "byteLength": 356688,
-              "scale": 0.0000010648307928381095,
-              "maximumError": 5.324044798186989e-7
+              "scale": 0.0000010730327995123298,
+              "maximumError": 5.3651458032343e-7
             },
             {
               "name": "Eyes",
@@ -765,5 +765,5 @@
     }
   },
   "byteLength": 8365724,
-  "sha256": "79e4fbd4d19cce968f17a751ab14c680dc68ad072b744b628f671d5f36cd3458"
+  "sha256": "565508f7bb060109b7ec29bafe192c41992f45bc3f31e36ba58b8d2dd5d91a16"
 }
