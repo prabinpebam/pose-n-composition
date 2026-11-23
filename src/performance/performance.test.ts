@@ -316,7 +316,7 @@ describe('FrameGovernor & PerfMonitor (frameGovernor.ts, perfMetrics.ts)', () =>
 });
 
 describe('SkinDeformer pose-dirty O(1) cache & tight posed bounds (skinDeformer.ts)', () => {
-  it('skips redundant vertex deformation on unchanged pose (secondCallMs << firstCallMs) with byte-identical positions and recomputes when pose changes', () => {
+  it('skips redundant vertex deformation on unchanged pose (cachedCallMs << firstCallMs) with byte-identical positions and recomputes when pose changes', () => {
     const fig = buildExternalFigure('male', characterTemplates.get('male')!, '#d9a17c');
     fig.root.position.set(0.8, 0, -0.4);
     const deformer = new SkinDeformer(fig);
@@ -349,8 +349,18 @@ describe('SkinDeformer pose-dirty O(1) cache & tight posed bounds (skinDeformer.
     const secondCallMs = performance.now() - tSecond0;
 
     expect(secondDiag.skippedRedundant).toBe(true);
-    expect(secondCallMs).toBeLessThan(0.25);
-    expect(secondCallMs).toBeLessThan(firstCallMs * 0.05);
+    // Keep scheduler/JIT outliers from deciding a sub-millisecond cache budget.
+    const cachedTimings = [secondCallMs];
+    for (let i = 0; i < 8; i++) {
+      const cachedPose = clone(actionPose);
+      const start = performance.now();
+      const diagnostic = deformer.applyPose(cachedPose);
+      cachedTimings.push(performance.now() - start);
+      expect(diagnostic.skippedRedundant).toBe(true);
+    }
+    const cachedCallMs = cachedTimings.sort((a, b) => a - b)[4];
+    expect(cachedCallMs).toBeLessThan(0.25);
+    expect(cachedCallMs).toBeLessThan(firstCallMs * 0.05);
     expect(posAttr.version).toBe(firstVersion); // Zero redundant GPU buffer re-upload!
 
     const secondBytes = new Uint8Array((posAttr.array as Float32Array).slice().buffer);

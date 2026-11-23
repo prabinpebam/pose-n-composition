@@ -5,6 +5,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { cloneRoom, getRoomObjects, groupRoomMainObjects, loadRooms, makeRoom, prepareRoomTemplate, releaseUnusedRooms, updateRoomCutaway } from './rooms';
 import { ROOMS, ROOM_IDS } from './roomCatalog';
+import * as roomCatalog from './roomCatalog';
 import { createItem, initialScene, validatePortable } from './model';
 
 beforeAll(() => {
@@ -185,20 +186,25 @@ it('groups room meshes into main logical objects with bottom-center pivots and r
   scene.items[0].visible = false;
   const roomItem = {
     ...createItem('room'),
-    roomId: ROOM_IDS[0],
+    roomId: 'test-room',
     locked: true,
     roomObjects: {
       [sofaObj.id]: { position: [0.5, 0, -0.2] as [number, number, number], rotation: [0, 0.5, 0] as [number, number, number], scale: [1, 1, 1] as [number, number, number], visible: false, locked: true, deleted: false },
     },
   };
   scene.items.push(roomItem);
-  const restored = validatePortable(JSON.parse(JSON.stringify(scene)));
-  if (restored.type !== 'scene') throw new Error('Expected scene');
-  expect(restored.items[0].locked).toBe(true);
-  expect(restored.items[0].visible).toBe(false);
-  expect(restored.items.at(-1)?.roomObjects?.[sofaObj.id]?.locked).toBe(true);
-  expect(() => validatePortable({ ...scene, items: [{ ...roomItem, locked: 'yes' }] })).toThrow('Invalid file');
-  expect(() => validatePortable({ ...scene, items: [{ ...roomItem, roomObjects: { [sofaObj.id]: { scale: [0, 1, 1] } } }] })).toThrow('Invalid file');
+  const knownRoom = vi.spyOn(roomCatalog, 'isRoomId').mockImplementation(value => value === 'test-room');
+  try {
+    const restored = validatePortable(JSON.parse(JSON.stringify(scene)));
+    if (restored.type !== 'scene') throw new Error('Expected scene');
+    expect(restored.items[0].locked).toBe(true);
+    expect(restored.items[0].visible).toBe(false);
+    expect(restored.items.at(-1)?.roomObjects?.[sofaObj.id]?.locked).toBe(true);
+    expect(() => validatePortable({ ...scene, items: [{ ...roomItem, locked: 'yes' }] })).toThrow('Invalid file');
+    expect(() => validatePortable({ ...scene, items: [{ ...roomItem, roomObjects: { [sofaObj.id]: { scale: [0, 1, 1] } } }] })).toThrow('Invalid file');
+  } finally {
+    knownRoom.mockRestore();
+  }
 });
 
 describe.each(ROOM_IDS)('%s preset room', id => {

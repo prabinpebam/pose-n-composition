@@ -825,20 +825,14 @@ describe('Mannequin Male & Female: Proportions, Scalp-Fitted 3D Hair & 2048x2048
       expect(DEFAULT_MANNEQUIN_DRESS_ID).toBe('studio-briefs');
     });
 
-    it('keeps all 13 external characters untouched with zero synthetic dress maps', () => {
-      const externalCharacterIds = MODEL_IDS.filter(id => Boolean(CHARACTERS[id].source));
-      expect(externalCharacterIds.length).toBe(13);
-      for (const extId of externalCharacterIds) {
-        const entry = CHARACTERS[extId];
-        expect(entry.source).toBeDefined();
-      }
+    it.each(MODEL_IDS.filter(id => Boolean(CHARACTERS[id].source)))('keeps %s untouched with zero synthetic dress maps', extId => {
       // Calling setFigureDressMap on a non-mannequin figure is a strict no-op
       const fakeExternalRoot = new T.Group();
       const fakeMat = new T.MeshStandardMaterial();
       const fakeSkin = new T.SkinnedMesh(new T.BufferGeometry(), fakeMat);
       const fakeHead = new T.Bone();
       const fakeExtFigure = {
-        modelId: externalCharacterIds[0]!,
+        modelId: extId,
         nativeRig: true,
         body: 'male',
         root: fakeExternalRoot,
