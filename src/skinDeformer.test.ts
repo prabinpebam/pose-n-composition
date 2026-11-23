@@ -259,6 +259,28 @@ describe('Extreme-Pose 3-Layer Skin, Muscle Volume & Anti-Clipping Deformer', ()
     }
   });
 
+  it('keeps the realistic female rib-side fold anchored through a bilateral arm raise', () => {
+    const fig = makeFigureClone('female');
+    const pose = neutralPose();
+    applyExtremePoseDeformer(fig, pose);
+    const position = fig.skin.geometry.getAttribute('position') as T.BufferAttribute;
+    const rest = Float32Array.from(position.array);
+    const shoulderSpan = bonePosInMeshSpace(fig.skin, fig.bones.leftShoulder)
+      .distanceTo(bonePosInMeshSpace(fig.skin, fig.bones.rightShoulder));
+    expect(shoulderSpan).toBeGreaterThan(.31);
+    expect(shoulderSpan).toBeLessThan(.33);
+    for (const angle of [1.6, 2.55]) {
+      pose.leftShoulder[2] = angle;
+      pose.rightShoulder[2] = -angle;
+      applyExtremePoseDeformer(fig, pose);
+      // Corresponding rib-side samples on the shipped UV-split realistic mesh.
+      for (const vertices of [[36294, 36301, 36357, 36360, 36361], [6742, 6751, 6806, 6808, 6809]]) {
+        const travel = vertices.map(i => Math.abs(position.getX(i) - rest[3 * i]!)).sort((a, b) => a - b);
+        expect(travel[2]).toBeLessThan(.022);
+      }
+    }
+  });
+
   it('Benchmark 3: eliminates forearm-through-bicep clipping and produces positive anterior biceps peak at 135° elbow curl', () => {
     for (const body of ['male', 'female'] as const) {
       const fig = makeFigureClone(body);

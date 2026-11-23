@@ -1491,6 +1491,53 @@ function roundFemaleChest(shapes) {
   }
 }
 
+// Translate each arm chain with its socket; don't scale humerus length or
+// pull the breast, ribcage and hand into a narrower whole-body silhouette.
+function narrowShoulders(shape, names, orientation, inset) {
+  const { bones, parents, local, transforms } = shape;
+  const body = shape.meshes[0];
+  const offset = new Float32Array(bones.length);
+  for (const [suffix, sign] of [['l', -1], ['r', 1]]) {
+    const socket = names.indexOf(`upperarm_${suffix}`);
+    const shift = new T.Vector3(sign * inset, 0, 0);
+    const shiftLocal = shift.clone().applyQuaternion(orientation[names[parents[socket]]].clone().invert());
+    v3(local.subarray(socket * 3, socket * 3 + 3)).add(shiftLocal).toArray(local, socket * 3);
+    for (let i = 0; i < bones.length; i++) {
+      let ancestor = i;
+      while (ancestor >= 0 && ancestor !== socket) ancestor = parents[ancestor];
+      if (ancestor < 0) continue;
+      bones[i].add(shift);
+      transforms[i * 7] = bones[i].x;
+      offset[i] = shift.x;
+    }
+  }
+  for (let i = 0; i < body.position.length / 3; i++) {
+    let dx = 0;
+    for (let k = i * 4; k < i * 4 + 4; k++) dx += offset[body.joints[k]] * body.weights[k];
+    body.position[i * 3] += dx;
+  }
+  body.normal = normals(body);
+}
+
+function anchorAxillaryFold(body, names) {
+  const arms = ['upperarm_l', 'upperarm_r'].map(n => names.indexOf(n));
+  const spine = names.indexOf('spine_03');
+  for (let v = 0; v < body.position.length / 3; v++) {
+    const y = body.position[v * 3 + 1], z = body.position[v * 3 + 2];
+    if (y < 1.235 || y > 1.405 || z > 0.10) continue;
+    const joints = body.joints.subarray(v * 4, v * 4 + 4);
+    const a = joints.findIndex(j => arms.includes(j)), t = joints.indexOf(spine);
+    if (a < 0 || t < 0) continue;
+    const arm = body.weights[v * 4 + a], thorax = body.weights[v * 4 + t];
+    // Only the web shared with the ribs, not the arm-side sleeve or deltoid.
+    const blend = smooth(1.235, 1.29, y) * (1 - smooth(1.34, 1.405, y)) *
+      (1 - smooth(0.045, 0.10, z)) * smooth(0.035, 0.32, thorax);
+    const transfer = arm * 0.60 * blend;
+    body.weights[v * 4 + a] -= transfer;
+    body.weights[v * 4 + t] += transfer;
+  }
+}
+
 async function build() {
   await mkdir(OUT, { recursive: true });
   try { sourceLock = JSON.parse(await readFile(path.join(OUT, 'sources.lock.json'), 'utf8')); }
@@ -1650,9 +1697,14 @@ async function build() {
     if (sex === 'female') {
       roundFemaleChest(shapeData);
       for (const [type, shape] of Object.entries(shapeData)) {
+        if (type !== 'chibi') {
+          narrowShoulders(shape, names, orientation.world, 0.012);
+          report.shapes[`${sex}/${type}`].shoulderWidth = shape.bones[names.indexOf('upperarm_l')].distanceTo(shape.bones[names.indexOf('upperarm_r')]);
+        }
         const box = new T.Box3().setFromArray(shape.meshes[0].position);
         report.shapes[`${sex}/${type}`].bounds = { min: box.min.toArray(), max: box.max.toArray() };
       }
+      anchorAxillaryFold(baseline.meshes[0], names);
     }
     const texture = bodyTexture(base, baseline.points, sex, rig, names);
     await writeFile(path.join(OUT, `Mannequin_${title}.png`), texture);

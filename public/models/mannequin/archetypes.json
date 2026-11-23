@@ -372,7 +372,7 @@
               "byteOffset": 3604560,
               "byteLength": 356688,
               "scale": 0.0000271783206925724,
-              "maximumError": 0.000013588996597264924
+              "maximumError": 0.000013588873785493755
             },
             {
               "name": "Eyes",
@@ -765,5 +765,5 @@
     }
   },
   "byteLength": 8365724,
-  "sha256": "565508f7bb060109b7ec29bafe192c41992f45bc3f31e36ba58b8d2dd5d91a16"
+  "sha256": "3719f64c700e530847d69f5a3955d4321811523ca88a080b022ed2d3bf99ffb9"
 }

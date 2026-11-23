@@ -490,6 +490,11 @@ builder rounds the adult female chest in normalized bind space before encoding
 the archetype deltas, preserving joint centers, UVs and garment donor indices.
 After changing this surface, rerun the wardrobe bake to refit the torso garments.
 
+Adult female shoulder sockets and their arm chains are inset together in bind
+space, preserving arm length and chest projection. The rib-facing axillary fold
+shares more weight with the upper spine so it stays closer to the chest during
+arm elevation. Garment donors follow that same posed surface.
+
 **Separate polygon wardrobe (Mannequin Female only).** Tank, cropped jacket,
 open trench and pencil skirt are original MIT project patterns, fitted to the
 existing CC0 MakeHuman body. No third-party clothing or texture downloads.
